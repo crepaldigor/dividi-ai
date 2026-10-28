@@ -1,0 +1,20 @@
+# Arquivos locais do sistema e do editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Configurações privadas e arquivos temporários
+.env
+.env.*
+!.env.example
+*.log
+__pycache__/
+*.py[cod]
+
+# Backups financeiros exportados pelo aplicativo
+dividi-ai-backup-*.json
