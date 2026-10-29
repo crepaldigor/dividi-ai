@@ -1,11 +1,19 @@
-const CACHE = "dividi-ai-static-v10";
+const CACHE = "dividi-ai-static-v16";
 const ASSETS = [
   "./",
   "./index.html",
   "./css/styles.css",
-  "./css/redesign.css",
   "./js/app.js",
+  "./js/controls.js",
+  "./js/decisions.js",
+  "./js/expense-presets.js",
+  "./js/ui.js",
+  "./js/months.js",
+  "./js/month-view.js",
+  "./js/history.js",
+  "./js/recurring.js",
   "./js/engine.js",
+  "./js/settlement-view.js",
   "./js/storage.js",
   "./js/personal.js",
   "./js/group-finance.js",
@@ -38,10 +46,11 @@ self.addEventListener("activate", (event) => {
       .then(() => self.clients.claim()),
   );
 });
+const assetURLs = new Set(ASSETS.map(asset => new URL(asset, self.registration.scope).href));
 self.addEventListener("fetch", (event) => {
   if (
     event.request.method !== "GET" ||
-    new URL(event.request.url).origin !== self.location.origin
+    !assetURLs.has(event.request.url)
   )
     return;
   event.respondWith(
@@ -52,14 +61,8 @@ self.addEventListener("fetch", (event) => {
       try {
         const response = await fetch(event.request, { cache: "no-cache" });
         if (response.ok) {
-          const url = new URL(event.request.url);
-          const isAppAsset = ASSETS.some(
-            (asset) => new URL(asset, self.registration.scope).href === url.href,
-          );
-          if (isAppAsset) {
-            try { await cache.put(event.request, response.clone()); }
-            catch { /* A full cache must not prevent displaying the new file. */ }
-          }
+          try { await cache.put(event.request, response.clone()); }
+          catch { /* A full cache must not prevent displaying the new file. */ }
         }
         return response;
       } catch (error) {

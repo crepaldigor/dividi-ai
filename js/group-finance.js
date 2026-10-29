@@ -1,3 +1,5 @@
+import { expensePayments } from './engine.js';
+
 export const isMonth = value => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) && !value.startsWith('0000');
 export const necessityOptions = [['unknown','Ainda não classificada'],['essential','Essencial / inevitável'],['discretionary','Não essencial / ajustável']];
 const money = value => Number.isSafeInteger(value) && value >= 0 && value <= 100_000_000_000;
@@ -30,7 +32,7 @@ export function analyzeGroupMonth(group, month) {
     return { ...member, role:record?.role ?? null, income:record?.role === 'dependent' ? null : record?.income ?? null, contributes:record?.contributes ?? null,
       contribution:record?.contribution ?? null,
       allocated:expenses.reduce((sum,e)=>sum+(e.shares[member.id] || 0),0),
-      advanced:expenses.filter(e=>e.payerId === member.id).reduce((sum,e)=>sum+e.amount,0),
+      advanced:expenses.reduce((sum,e)=>sum+(expensePayments(e)[member.id] || 0),0),
       incomplete:!record || (record.role !== 'dependent' && record.income === null) || (record.contributes && record.contribution === null) };
   });
   const sum = (rows,key) => rows.reduce((total,row)=>total+(row[key] || 0),0);
@@ -65,7 +67,7 @@ export function analyzeGroupMonth(group, month) {
     individualPressure.length || unfundedShares > 0 ? 'distribution' : unclassified > 0 ? 'unclassified' : 'fits';
   return { month, members, contributors, dependents, familyReady, consumption, missing, expenses, spending, essential, discretionary, unclassified,
     totalIncome, contributorIncome, available, ratio, discretionaryRatio, status, individualPressure, unfundedShares,
-    headcount:members.length, payerCount:new Set(expenses.map(e=>e.payerId)).size,
+    headcount:members.length, payerCount:new Set(expenses.flatMap(e=>Object.keys(expensePayments(e)))).size,
     perPerson:members.length ? Math.round(spending/members.length) : null,
     perContributor:contributors.length ? Math.round(spending/contributors.length) : null,
     remaining:available-spending, unavoidableGap:Math.max(0,essential-available) };

@@ -1,8 +1,9 @@
 /** Motor financeiro do Dividi Aí — todos os valores são inteiros em centavos. */
 export function parseMoney(value) {
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("Valor inválido.");
-    return Math.round(value * 100);
+    if (!Number.isFinite(value) || value < 0) throw new Error("Valor inválido.");
+    // Use the same limits and decimal precision for numeric and text inputs.
+    return parseMoney(String(value));
   }
   const raw = String(value ?? "")
     .trim()
@@ -31,11 +32,8 @@ export function parseMoney(value) {
   return result;
 }
 
-export const formatMoney = (cents) =>
-  new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(cents / 100);
+const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+export const formatMoney = (cents) => currencyFormatter.format(cents / 100);
 
 export function sharesForExpense(amount, ids, mode = "equal", values = {}) {
   if (!Number.isSafeInteger(amount) || amount <= 0)
@@ -82,8 +80,8 @@ export function sharesForExpense(amount, ids, mode = "equal", values = {}) {
     }
     const allocated = parts.map((p) => ({
       ...p,
-      cents: Math.floor((amount * p.weight) / 10000),
-      fraction: (amount * p.weight) % 10000,
+      cents: Number(BigInt(amount) * BigInt(p.weight) / 10000n),
+      fraction: Number(BigInt(amount) * BigInt(p.weight) % 10000n),
     }));
     let remaining = amount - allocated.reduce((sum, p) => sum + p.cents, 0);
     const priority = [...allocated].sort(
@@ -95,11 +93,17 @@ export function sharesForExpense(amount, ids, mode = "equal", values = {}) {
   throw new Error("Tipo de divisão não reconhecido.");
 }
 
+// Registros antigos continuam funcionando sem migração destrutiva.
+export function expensePayments(expense) {
+  return expense.payers ?? { [expense.payerId]: expense.amount };
+}
+
 export function calculateBalances(group) {
   const totals = Object.fromEntries(group.members.map((m) => [m.id, 0]));
   for (const e of group.expenses) {
-    if (!(e.payerId in totals)) continue;
-    totals[e.payerId] += e.amount;
+    for (const [id, amount] of Object.entries(expensePayments(e))) {
+      if (Object.hasOwn(totals, id)) totals[id] += amount;
+    }
     for (const [id, share] of Object.entries(e.shares)) {
       if (id in totals) totals[id] -= share;
     }
@@ -148,10 +152,23 @@ export function groupStats(group) {
 }
 
 export function paidBy(group, id) {
-  return group.expenses
-    .filter((e) => e.payerId === id)
-    .reduce((s, e) => s + e.amount, 0);
+  return group.expenses.reduce((s, e) => s + (expensePayments(e)[id] || 0), 0);
 }
 export function owedBy(group, id) {
   return group.expenses.reduce((s, e) => s + (e.shares[id] || 0), 0);
+}
+
+/** Every term of the monthly balance, without inventing payment-to-expense links. */
+export function explainBalance(group, memberId) {
+  const expenses = group.expenses.map(expense => {
+    const paid = expensePayments(expense)[memberId] || 0;
+    const share = expense.shares[memberId] || 0;
+    return { expense, paid, share, effect:paid - share };
+  }).filter(row => row.paid || row.share);
+  const payments = group.payments.filter(p => p.fromId === memberId || p.toId === memberId).map(payment => ({payment,effect:payment.fromId === memberId ? payment.amount : -payment.amount}));
+  const paid = expenses.reduce((sum,r) => sum+r.paid,0);
+  const share = expenses.reduce((sum,r) => sum+r.share,0);
+  const sent = payments.filter(r=>r.effect>0).reduce((sum,r)=>sum+r.effect,0);
+  const received = payments.filter(r=>r.effect<0).reduce((sum,r)=>sum-r.effect,0);
+  return {memberId,expenses,payments,paid,share,sent,received,balance:paid-share+sent-received};
 }

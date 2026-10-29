@@ -1,18 +1,27 @@
+import { currentMonth, nextOpenMonth, monthLabel, shiftMonth, monthGroup, paymentMonth, isClosed } from './months.js';
+import { monthToolbar, renderPastPending, renderComparison, renderRecurring, renderHistory } from './month-view.js';
+import { recordChange, undoChange } from './history.js';
+import { recurringDue, recurringExpense } from './recurring.js';
+import './controls.js';
+import { escapeHTML, icon, dateLabel } from "./ui.js";
+import { renderPendingExplanation } from './settlement-view.js';
+import { requestDecision } from "./decisions.js";
+import { expensePresets } from "./expense-presets.js";
 import { renderBudgetAnalysis } from "./analysis-view.js";
 import { renderGroupFinance } from './group-finance-view.js';
 import { isMonth, isValidGroupFinances, necessityOptions, analyzeGroupMonth, familyExpenseShares, proposeFamilyMonth } from './group-finance.js';
 import {
+  expensePayments,
   parseMoney,
   formatMoney,
   sharesForExpense,
-  calculateBalances,
-  suggestSettlements,
   groupStats,
   paidBy,
   owedBy,
 } from "./engine.js";
 import {
   loadData,
+  migrateData,
   saveData,
   emptyData,
   isValidData,
@@ -22,65 +31,18 @@ import {
 } from "./storage.js";
 
 import {
+  personalGroupCosts,
+  integratedBudget,
   budgetCategories,
   personalBalances,
   analyzeBudget,
 } from "./personal.js";
 
 const $ = (selector, root = document) => root.querySelector(selector);
-const escapeHTML = (value) =>
-  String(value ?? "").replace(
-    /[&<>"']/g,
-    (char) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        char
-      ],
-  );
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
-const dateLabel = (date) => {
-  const d = new Date(`${date}T12:00:00`);
-  return Number.isNaN(d.getTime())
-    ? "Data desconhecida"
-    : new Intl.DateTimeFormat("pt-BR", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(d);
-};
-const iconPaths = {
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
-  upload: '<path d="M12 16V4m-4 4 4-4 4 4M4 16v4h16v-4"/>',
-  people:
-    '<circle cx="9" cy="8" r="3"/><path d="M3 20v-2c0-3 2.5-5 6-5s6 2 6 5v2M17 5c2.5 0 4 2 4 4s-1.5 4-4 4M18 15c2 .5 3 2 3 5"/>',
-  receipt:
-    '<path d="M7 3h10l3 3v15l-5-2-3 2-3-2-5 2V6l3-3Z"/><path d="M9 10h6M9 14h6"/>',
-  wallet:
-    '<rect x="3" y="6" width="18" height="15" rx="3"/><path d="M3 10V6a3 3 0 0 1 3-3h12M16 15h5"/>',
-  check: '<path d="m5 12 4 4L19 6"/>',
-  calendar:
-    '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 10h18"/>',
-  edit: '<path d="M4 20h4L20 8l-4-4L4 16v4ZM14 6l4 4"/>',
-  trash: '<path d="M4 7h16M10 4h4M6 7l1 14h10l1-14M10 11v6m4-6v6"/>',
-  search: '<circle cx="11" cy="11" r="7"/><path d="m16 16 5 5"/>',
-  cup: '<path d="M4 7h13v7a6.5 6.5 0 0 1-13 0V7Zm13 2h2a3 3 0 0 1 0 6h-2M3 21h17"/>',
-  car: '<path d="m5 11 2-5h10l2 5M4 11h16v8H4zM7 19v2m10-2v2M7 15h2m6 0h2"/>',
-  house: '<path d="m3 10 9-7 9 7v11H3V10ZM9 21v-7h6v7"/>',
-  bag: '<path d="M4 8h16l-1 13H5L4 8ZM9 9V6a3 3 0 0 1 6 0v3"/>',
-  gift: '<rect x="3" y="8" width="18" height="13" rx="2"/><path d="M12 8v13M3 12h18M12 8c-4 0-7-1.2-7-3 0-3 5-3 7 3Zm0 0c4 0 7-1.2 7-3 0-3-5-3-7 3Z"/>',
-  chart: '<path d="M4 20V9m5 11V4m5 16v-7m5 7V8M2 20h20"/>',
-  dots: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-  shield:
-    '<path d="m12 2 9 4v6c0 5-3 8-9 10-6-2-9-5-9-10V6l9-4Z"/><path d="m9 12 2 2 4-4"/>',
-  party:
-    '<path d="m4 20 5-13 8 8-13 5ZM12 4l2 2M19 5l2-2M19 11l2 2M9 2l-1 3"/>',
-  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 8c-1-.7-2.5-1-4-.5-3 1-3 3.5 0 4.5s4 3 1 4c-1.3.5-3 .3-4-1M12 5v14"/>',
-};
-const icon = (name, size = 18) =>
-  `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">${iconPaths[name] || iconPaths.coin}</svg>`;
 const typeNames = {
   trip: "Viagem",
   home: "Casa",
@@ -88,16 +50,13 @@ const typeNames = {
   event: "Evento",
   other: "Outros",
 };
-const typeSymbols = {
-  trip: "↗",
-  home: "⌂",
-  friends: "✳",
-  event: "✦",
-  other: "◈",
-};
 const categories = {
   food: { name: "Alimentação", icon: "cup", color: "#ffad78" },
-  stay: { name: "Hospedagem", icon: "house", color: "#b5e56b" },
+  delivery: { name: "Delivery", icon: "cup", color: "#ff9f8e" },
+  subscriptions: { name: "Assinaturas", icon: "receipt", color: "#c9a4ff" },
+  stay: { name: "Moradia e hospedagem", icon: "house", color: "#b5e56b" },
+  health: { name: "Saúde", icon: "shield", color: "#7ce5c1" },
+  education: { name: "Educação", icon: "receipt", color: "#eab4ee" },
   transport: { name: "Transporte", icon: "car", color: "#83b4ff" },
   leisure: { name: "Lazer", icon: "party", color: "#b69bfa" },
   shopping: { name: "Compras", icon: "bag", color: "#f2cd6d" },
@@ -105,6 +64,11 @@ const categories = {
 };
 const nameOf = (group, id) =>
   group.members.find((m) => m.id === id)?.name || "Participante";
+const payerNames = (group, expense) => Object.keys(expensePayments(expense)).map(id => nameOf(group, id)).join(" + ");
+const payerSummary = (group, expense) => {
+  const entries = Object.entries(expensePayments(expense));
+  return entries.length === 1 ? `${nameOf(group, entries[0][0])} pagou` : entries.map(([id, value]) => `${nameOf(group, id)}: ${formatMoney(value)}`).join(' + ');
+};
 const avatar = (name, index = 0) =>
   `<span class="avatar" data-index="${index % 4}">${escapeHTML(
     name
@@ -127,8 +91,9 @@ const shortAvatar = (name) =>
   )}</span>`;
 
 let db = loadData();
+let lastSaved = structuredClone(db);
 let view = "overview";
-let groupFinanceMonth = today().slice(0,7);
+let selectedMonth = nextOpenMonth(db.groups.find(g => g.id === db.activeGroupId) || db.groups[0]);
 let expenseFilter = { text: "", category: "all" };
 let expenseDraft = null;
 let toastTimer;
@@ -152,14 +117,31 @@ function notify(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => node.classList.remove("show"), 3500);
 }
-function persist(message) {
-  if (!saveData(db))
-    notify(
-      "Não foi possível salvar. Exporte um backup para não perder seus dados.",
-    );
-  else if (message) notify(message);
+function persist(message, { audit = true } = {}) {
+  if (audit && message) recordChange(lastSaved, db, message, `${groupNow()?.name || 'Conta pessoal'} · ${monthLabel(selectedMonth)}`);
+  if (!isValidData(db) || !saveData(db)) {
+    db = structuredClone(lastSaved);
+    notify('Não foi possível salvar. A alteração não foi aplicada. Exporte um backup e confira o espaço do navegador.');
+    render();
+    return false;
+  }
+  lastSaved = structuredClone(db);
   render();
+  if (message) {
+    notify(message);
+    const latest = db.history?.at(-1);
+    if (audit && latest && !latest.undoneAt) {
+      const button = document.createElement('button');
+      button.className = 'toast-undo'; button.dataset.action = 'undo-change'; button.dataset.id = latest.id;
+      button.textContent = 'Desfazer'; $('#toast').append(button);
+    }
+  }
+  return true;
 }
+function assertOpen(month = selectedMonth) {
+  if (isClosed(groupNow(), month)) throw new Error('Este mês está fechado. Reabra o extrato antes de alterar despesas ou rendas.');
+}
+function defaultExpenseDate() { return selectedMonth === currentMonth() ? today() : selectedMonth + '-01'; }
 function groupNow() {
   return (
     db.groups.find((g) => g.id === db.activeGroupId) || db.groups[0] || null
@@ -177,7 +159,7 @@ function renderSidebar() {
     db.groups
       .map(
         (g) =>
-          `<button type="button" class="group-link ${groupNow()?.id === g.id ? "active" : ""}" data-group="${escapeHTML(g.id)}" aria-label="Abrir grupo ${escapeHTML(g.name)}" title="${escapeHTML(g.name)}"><span class="group-symbol" data-type="${escapeHTML(g.type || "other")}">${typeSymbols[g.type] || "◈"}</span><span class="group-link-name">${escapeHTML(g.name)}</span></button>`,
+          `<button type="button" class="group-link ${groupNow()?.id === g.id ? "active" : ""}" data-group="${escapeHTML(g.id)}" aria-label="Abrir grupo ${escapeHTML(g.name)}" title="${escapeHTML(g.name)}"><span class="group-symbol" data-type="${escapeHTML(g.type || "other")}">${icon({home:'house',trip:'car',friends:'people',event:'party'}[g.type] || 'receipt',16)}</span><span class="group-link-name">${escapeHTML(g.name)}</span></button>`,
       )
       .join("") || '<p class="groups-empty">Seu próximo rolê começa aqui.</p>';
   for (const b of document.querySelectorAll(".nav-link[data-view]")) {
@@ -199,27 +181,29 @@ function render() {
       )
       .join("") + '<option value="__new__">+ Novo grupo</option>';
   if (!group) mobileGroupSelect.value = "__new__";
+  if (view === "history") { $("#workspace").innerHTML = renderHistory(db.history); return; }
   if (view === "personal") {
     $("#topbar-group").textContent = "Meu painel";
-    $("#workspace").innerHTML = renderPersonal();
+    $("#workspace").innerHTML = monthToolbar(null, selectedMonth) + renderPersonal();
     return;
   }
   if (!group) {
     $("#workspace").innerHTML = renderWelcome();
     return;
   }
-  const stats = groupStats(group);
+  const monthly = monthGroup(group, selectedMonth);
+  const stats = groupStats(monthly);
+  const period = monthToolbar(group, selectedMonth) + renderPastPending(group, selectedMonth);
   if (view === 'group-finance') {
-    $('#workspace').innerHTML = renderGroupFinance(group, groupFinanceMonth);
+    $('#workspace').innerHTML = period + renderGroupFinance(monthly, selectedMonth);
     return;
   }
   if (view === "expenses")
-    $("#workspace").innerHTML = renderExpensesView(group, stats);
+    $("#workspace").innerHTML = period + renderExpensesView(monthly) + renderRecurring(group, selectedMonth);
   else if (view === "people")
-    $("#workspace").innerHTML = renderPeopleView(group, stats);
-  else $("#workspace").innerHTML = renderOverview(group, stats);
+    $("#workspace").innerHTML = period + renderPeopleView(monthly, stats);
+  else $("#workspace").innerHTML = period + renderOverview(monthly, stats) + renderRecurring(group, selectedMonth) + renderComparison(group, selectedMonth, categories);
 }
-const smallCurrency = (cents) => formatMoney(cents);
 function renderWelcome() {
   return `<section class="welcome">
     <div class="welcome-copy"><p class="eyebrow">MENOS CONTA. MAIS ENCONTRO.</p>
@@ -235,7 +219,7 @@ function renderWelcome() {
   </section><section class="start-guide" aria-label="Como funciona"><article><span class="step-number">01</span><div><h2>Junta a galera</h2><p>Um grupo para cada viagem, casa ou encontro.</p></div>${icon("people")}</article><article><span class="step-number">02</span><div><h2>Anota os gastos</h2><p>Quem pagou, quanto foi e quem vai dividir.</p></div>${icon("receipt")}</article><article><span class="step-number">03</span><div><h2>Fecha a conta</h2><p>Veja os saldos e registre cada acerto.</p></div>${icon("check")}</article></section>`;
 }
 function pageHead(group, heading, description, actions = true) {
-  return `<header class="page-head"><div><p class="eyebrow">${escapeHTML(typeNames[group.type] || "SEU GRUPO")} | ${escapeHTML(group.name)}${group.sample ? '<span class="note-chip">EXEMPLO</span>' : ""}</p><h1>${heading}</h1><p class="page-subtitle">${description}</p></div>${actions ? `<div class="head-buttons"><button class="icon-button" data-action="edit-group" aria-label="Gerenciar grupo" title="Gerenciar grupo">${icon("edit")}</button><button class="button secondary" data-action="share">${icon("upload")} Compartilhar resumo</button><button class="button primary" data-action="new-expense">${icon("plus")} Nova despesa</button></div>` : ""}</header>`;
+  return `<header class="page-head"><div><p class="eyebrow">${escapeHTML(typeNames[group.type] || "SEU GRUPO")} | ${escapeHTML(group.name)}${group.sample ? '<span class="note-chip">EXEMPLO</span>' : ""}</p><h1>${heading}</h1><p class="page-subtitle">${description}</p></div>${actions ? `<div class="head-buttons"><button class="icon-button" data-action="edit-group" aria-label="Gerenciar grupo" title="Gerenciar grupo">${icon("edit")}</button><button class="button secondary" data-action="share">${icon("upload")} Compartilhar resumo</button><button class="button primary" data-action="new-expense" ${isClosed(group,selectedMonth) ? 'disabled' : ''}>${icon("plus")} Nova despesa</button></div>` : ""}</header>`;
 }
 function statBlock(label, iconName, value, foot, accent = false) {
   return `<article class="stat-card"><div class="stat-top"><span>${label}</span><span class="stat-icon ${accent ? "accent" : ""}">${icon(iconName)}</span></div><div class="stat-number">${value}</div><p class="stat-foot">${foot}</p></article>`;
@@ -244,9 +228,9 @@ function renderOverview(group, stats) {
   return `${pageHead(group, "O grupo em números.", "Os gastos, a galera e o que falta acertar.")}
   <section class="finance-entry"><div><span class="eyebrow">RENDA | CONTRIBUIÇÃO | DESPESAS</span><h2>O que cabe no orçamento do grupo?</h2><p>Informe as rendas, quem ajuda a pagar e o valor disponível de cada pessoa.</p></div><button class="button secondary" data-action="group-finance">Analisar orçamento do grupo ${icon('arrow')}</button></section>
   <section class="stats-grid" aria-label="Resumo financeiro">
-    ${statBlock("Total de despesas", "wallet", formatMoney(stats.total), "Valor de todas as despesas do grupo")}
+    ${statBlock("Total de despesas", "wallet", formatMoney(stats.total), "Valor das despesas do mês selecionado")}
     ${statBlock("Participantes", "people", String(group.members.length), `${group.members.length === 1 ? "Pessoa cadastrada" : "Pessoas dividindo as contas"}`)}
-    ${statBlock("Falta acertar", "receipt", formatMoney(stats.pending), `${stats.settlements.length} ${stats.settlements.length === 1 ? "transferência sugerida" : "transferências sugeridas"}`, true)}
+    ${statBlock("Falta acertar", "receipt", formatMoney(stats.pending), `${stats.settlements.length} ${stats.settlements.length === 1 ? "transferência sugerida" : "transferências sugeridas"}<button class="stat-drilldown" data-action="explain-pending">Ver de onde vem ${icon('arrow',14)}</button>`, true)}
   </section>
   <section class="overview-grid" aria-label="Saldos e acertos">
     <article class="panel settlement-panel"><p class="panel-kicker">HORA DE ACERTAR</p><h2>Quem paga quem?</h2><p class="panel-lead">Calculamos os saldos para reduzir as transferências necessárias.</p>
@@ -267,7 +251,7 @@ function renderSettlementItems(group, stats) {
     .slice(0, 4)
     .map(
       (p) =>
-        `<div class="settle-item">${shortAvatar(nameOf(group, p.fromId))}<div class="settle-copy"><strong>${escapeHTML(nameOf(group, p.fromId))}</strong> paga para <strong>${escapeHTML(nameOf(group, p.toId))}</strong><span class="settle-money">${formatMoney(p.amount)}</span></div><button class="settle-confirm" data-action="settle" data-from="${escapeHTML(p.fromId)}" data-to="${escapeHTML(p.toId)}" data-amount="${p.amount}" title="Registrar este pagamento">Marcar pago</button></div>`,
+        `<div class="settle-item">${shortAvatar(nameOf(group, p.fromId))}<div class="settle-copy"><strong>${escapeHTML(nameOf(group, p.fromId))}</strong> paga para <strong>${escapeHTML(nameOf(group, p.toId))}</strong><span class="settle-money">${formatMoney(p.amount)}</span><button class="settle-explain" data-action="explain-settlement" data-from="${escapeHTML(p.fromId)}" data-to="${escapeHTML(p.toId)}">Por que este valor? ${icon('arrow',12)}</button></div><button class="settle-confirm" data-action="settle" data-from="${escapeHTML(p.fromId)}" data-to="${escapeHTML(p.toId)}" data-amount="${p.amount}" title="Registrar este pagamento">Marcar pago</button></div>`,
     )
     .join(
       "",
@@ -293,7 +277,7 @@ function renderActivity(group) {
   const last = sortEntries(group.expenses).slice(0, 4);
   if (!last.length)
     return `<div class="empty-state"><div class="empty-illustration">+</div><h3>Nada por aqui ainda</h3><p>Adicione a primeira despesa para ver a movimentação.</p><button class="button secondary compact" data-action="new-expense">Adicionar despesa</button></div>`;
-  return `<div class="activity-list">${last.map((e) => `<div class="activity-item">${categoryBubble(e.category)}<div class="activity-main"><div class="activity-title">${escapeHTML(e.title)}</div><div class="activity-sub">${escapeHTML(nameOf(group, e.payerId))} pagou · ${dateLabel(e.date)}</div></div><div class="activity-value">${formatMoney(e.amount)}<span class="small-text">${escapeHTML(categories[e.category]?.name || "Outros")}</span></div></div>`).join("")}</div>`;
+  return `<div class="activity-list">${last.map((e) => `<div class="activity-item">${categoryBubble(e.category)}<div class="activity-main"><div class="activity-title">${escapeHTML(e.title)}</div><div class="activity-sub">${escapeHTML(payerSummary(group, e))} · ${dateLabel(e.date)}</div></div><div class="activity-value">${formatMoney(e.amount)}<span class="small-text">${escapeHTML(categories[e.category]?.name || "Outros")}</span></div></div>`).join("")}</div>`;
 }
 function renderCategoryBreakdown(group) {
   const totals = {};
@@ -305,16 +289,20 @@ function renderCategoryBreakdown(group) {
     return `<div class="empty-state"><p>As categorias aparecem depois que você registra despesas.</p></div>`;
   return `<p class="panel-kicker">DISTRIBUIÇÃO DOS GASTOS</p><div class="category-chart" role="img" aria-label="Gráfico de proporção dos gastos por categoria">${entries.map(([id, value]) => `<span title="${escapeHTML(categories[id]?.name || "Outros")}: ${formatMoney(value)}" style="width:${((value / sum) * 100).toFixed(2)}%;background:${categories[id]?.color || "#aaa"}"></span>`).join("")}</div><div class="category-list">${entries.map(([id, value]) => `<div class="category-line"><span class="category-dot" style="background:${categories[id]?.color || "#aaa"}"></span><span>${escapeHTML(categories[id]?.name || "Outros")}</span><span class="category-money">${formatMoney(value)}</span></div>`).join("")}</div>`;
 }
-function renderExpensesView(group, stats) {
+function renderExpenseResults(group) {
   const needle = expenseFilter.text.toLocaleLowerCase("pt-BR");
   const entries = sortEntries(group.expenses).filter(
     (e) =>
       (expenseFilter.category === "all" ||
         e.category === expenseFilter.category) &&
-      `${e.title} ${nameOf(group, e.payerId)} ${e.note || ""}`
+      `${e.title} ${payerNames(group, e)} ${e.note || ""}`
         .toLocaleLowerCase("pt-BR")
         .includes(needle),
   );
+  return `<section class="panel" id="expense-results"><div class="table-intro"><span>Despesas lançadas</span><span>${entries.length} de ${group.expenses.length} ${group.expenses.length === 1 ? "despesa" : "despesas"}</span></div>
+  ${entries.length ? entries.map((e) => `<div class="expense-item"><div class="expense-grid">${categoryBubble(e.category)}<div><div class="expense-title">${escapeHTML(e.title)}</div><div class="expense-meta">${dateLabel(e.date)} · ${escapeHTML(payerSummary(group, e))} · Dividida entre ${Object.keys(e.shares).length}</div></div><div class="expense-value">${formatMoney(e.amount)}</div><div class="expense-edit"><button class="tertiary-button" data-action="edit-expense" ${isClosed(group,selectedMonth) ? 'disabled' : ''} data-id="${escapeHTML(e.id)}" aria-label="Editar ${escapeHTML(e.title)}" title="Editar">${icon("edit")}</button><button class="tertiary-button" data-action="delete-expense" ${isClosed(group,selectedMonth) ? 'disabled' : ''} data-id="${escapeHTML(e.id)}" aria-label="Excluir ${escapeHTML(e.title)}" title="Excluir">${icon("trash")}</button></div></div>${e.note ? `<div class="expense-note">${escapeHTML(e.note)}</div>` : ""}</div>`).join("") : `<div class="empty-state"><div class="empty-illustration">${icon("receipt")}</div><h3>${group.expenses.length ? "Nenhum resultado" : "Seu histórico começa aqui"}</h3><p>${group.expenses.length ? "Tente outra busca ou categoria." : "Registre o primeiro gasto para organizar a divisão."}</p>${group.expenses.length ? "" : '<button class="button primary compact" data-action="new-expense">Nova despesa</button>'}</div>`}</section>`;
+}
+function renderExpensesView(group) {
   return `${pageHead(group, "Despesas do grupo.", "Tudo registrado, fácil de encontrar e revisar.")}
   <div class="toolbar"><label class="searchbox">${icon("search")}<input type="search" id="expense-search" placeholder="Buscar despesas, pessoas..." value="${escapeHTML(expenseFilter.text)}" aria-label="Buscar despesas" /></label><select class="select-filter" id="expense-filter" aria-label="Filtrar categoria"><option value="all">Todas as categorias</option>${Object.entries(
     categories,
@@ -324,43 +312,83 @@ function renderExpensesView(group, stats) {
         `<option value="${id}" ${expenseFilter.category === id ? "selected" : ""}>${escapeHTML(c.name)}</option>`,
     )
     .join("")}</select></div>
-  <section class="panel"><div class="table-intro"><span>Despesas lançadas</span><span>${entries.length} de ${group.expenses.length} ${group.expenses.length === 1 ? "despesa" : "despesas"}</span></div>
-  ${entries.length ? entries.map((e) => `<div class="expense-item"><div class="expense-grid">${categoryBubble(e.category)}<div><div class="expense-title">${escapeHTML(e.title)}</div><div class="expense-meta">${dateLabel(e.date)} · ${escapeHTML(nameOf(group, e.payerId))} pagou · Dividida entre ${Object.keys(e.shares).length}</div></div><div class="expense-value">${formatMoney(e.amount)}</div><div class="expense-edit"><button class="tertiary-button" data-action="edit-expense" data-id="${escapeHTML(e.id)}" aria-label="Editar ${escapeHTML(e.title)}" title="Editar">${icon("edit")}</button><button class="tertiary-button" data-action="delete-expense" data-id="${escapeHTML(e.id)}" aria-label="Excluir ${escapeHTML(e.title)}" title="Excluir">${icon("trash")}</button></div></div>${e.note ? `<div class="expense-note">${escapeHTML(e.note)}</div>` : ""}</div>`).join("") : `<div class="empty-state"><div class="empty-illustration">${icon("receipt")}</div><h3>${group.expenses.length ? "Nenhum resultado" : "Seu histórico começa aqui"}</h3><p>${group.expenses.length ? "Tente outra busca ou categoria." : "Registre o primeiro gasto para organizar a divisão."}</p>${group.expenses.length ? "" : '<button class="button primary compact" data-action="new-expense">Nova despesa</button>'}</div>`}</section>
+  ${renderExpenseResults(group)}
   <section class="panel ledger"><div class="table-intro"><span>Pagamentos registrados</span><span>${group.payments.length} ${group.payments.length === 1 ? "pagamento" : "pagamentos"}</span></div>${
     group.payments.length
       ? sortEntries(group.payments)
           .map(
             (p) =>
-              `<div class="payment-item"><div><div class="payment-title">${escapeHTML(nameOf(group, p.fromId))} pagou ${escapeHTML(nameOf(group, p.toId))}</div><div class="payment-sub">${dateLabel(p.date)} · Pagamento registrado</div></div><div class="payment-right"><span class="payment-amount">${formatMoney(p.amount)}</span><button class="tertiary-button" data-action="delete-payment" data-id="${escapeHTML(p.id)}" aria-label="Excluir pagamento" title="Excluir registro">${icon("trash")}</button></div></div>`,
+              `<div class="payment-item"><div><div class="payment-title">${escapeHTML(nameOf(group, p.fromId))} pagou ${escapeHTML(nameOf(group, p.toId))}</div><div class="payment-sub">${dateLabel(p.date)} · Acerto de ${escapeHTML(monthLabel(paymentMonth(p)))}${p.legacyMonthAssigned ? ' · Mês atribuído ao registro antigo; use Editar para revisar' : ''}</div></div><div class="payment-right"><span class="payment-amount">${formatMoney(p.amount)}</span><button class="tertiary-button" data-action="edit-payment" data-id="${escapeHTML(p.id)}" aria-label="Editar pagamento e mês">${icon("edit")}</button><button class="tertiary-button" data-action="delete-payment" data-id="${escapeHTML(p.id)}" aria-label="Excluir pagamento" title="Excluir registro">${icon("trash")}</button></div></div>`,
           )
           .join("")
       : '<div class="empty-state"><p>Nenhum pagamento registrado neste grupo.</p></div>'
   }<div style="padding:0 22px 18px;text-align:right"><button class="text-action" data-action="new-payment">+ Registrar pagamento</button></div></section>`;
 }
 function renderPeopleView(group, stats) {
-  return `${pageHead(group, "Gente que divide.", "Todos os participantes e seus saldos em um só lugar.", false)}
-  <div class="head-buttons people-actions"><button class="button secondary" data-action="edit-group">${icon("edit")} Configurar grupo</button><button class="button secondary" data-action="group-finance">${icon('chart')} Rendas e orçamento</button><button class="button primary" data-action="new-person">${icon("plus")} Adicionar pessoa</button></div>
-  <section class="stats-grid">${statBlock("Pessoas no grupo", "people", String(group.members.length), "Participantes cadastrados")}${statBlock("Despesas lançadas", "receipt", String(stats.count), "Movimentações do grupo")}${statBlock("Ainda pendente", "wallet", formatMoney(stats.pending), "Total a acertar entre pessoas", true)}</section>
-  <div class="section-head"><div><h2 class="section-title">Quem está nessa</h2><p class="section-description">A parte de cada pessoa, sem perder nenhuma conta.</p></div></div>
-  ${
-    group.members.length
-      ? `<div class="people-grid">${group.members
-          .map((m, i) => {
-            const balance = stats.balances[m.id] || 0;
-            return `<article class="person-card"><div class="person-top">${avatar(m.name, i)}<div><div class="person-name">${escapeHTML(m.name)}</div><div class="person-sub">${balance === 0 ? "Tudo acertado" : balance > 0 ? "Tem a receber" : "Tem a pagar"}</div></div><span class="person-spacer"></span><button class="tertiary-button" data-action="delete-person" data-id="${escapeHTML(m.id)}" aria-label="Remover ${escapeHTML(m.name)}" title="Remover participante">${icon("trash")}</button></div><div class="person-net ${balance > 0 ? "positive" : balance < 0 ? "negative" : ""}">${balance > 0 ? "+" : balance < 0 ? "−" : ""}${formatMoney(Math.abs(balance))}</div><div class="person-bottom"><div><label>Pagou no total</label><strong>${formatMoney(paidBy(group, m.id))}</strong></div><div><label>Sua parte nas despesas</label><strong>${formatMoney(owedBy(group, m.id))}</strong></div></div></article>`;
-          })
-          .join("")}</div>`
-      : '<div class="panel empty-state"><p>Adicione participantes para começar.</p></div>'
-  }
-  <div style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap"><button class="text-action" data-action="edit-group">Editar nome e tipo do grupo</button><button class="text-action" data-action="delete-group" style="color:var(--negative)">Excluir este grupo</button></div>`;
+  return `${pageHead(group, "Cada pessoa, sua parte.", `Participação e acertos de ${escapeHTML(monthLabel(selectedMonth))}.`, false)}
+    <div class="people-actions head-buttons"><button class="button secondary" data-action="group-finance">${icon('chart')} Orçamento da família</button><button class="button secondary" data-action="edit-group">${icon('edit')} Configurar grupo</button><button class="button primary" data-action="new-person">${icon('plus')} Adicionar pessoa</button></div>
+    <div class="people-grid">${group.members.map((member, i) => {
+      const balance = stats.balances[member.id] || 0;
+      const record = group.finances?.[selectedMonth]?.find(row => row.memberId === member.id);
+      const dependent = record?.role === 'dependent';
+      return `<article class="person-card member-card"><header class="member-header">${avatar(member.name, i)}<div><h2>${escapeHTML(member.name)}</h2><span class="member-role">${dependent ? 'Dependente' : record?.contributes ? 'Contribui com a casa' : 'Participação não informada'}</span></div><button class="tertiary-button" data-action="delete-person" data-id="${escapeHTML(member.id)}" aria-label="Remover ${escapeHTML(member.name)}">${icon('trash')}</button></header>
+      <section class="member-balance"><span>${balance > 0 ? 'Tem a receber neste mês' : balance < 0 ? 'Falta pagar neste mês' : 'Acertos deste mês em dia'}</span><strong class="${balance > 0 ? 'positive' : balance < 0 ? 'negative' : ''}">${formatMoney(Math.abs(balance))}</strong></section>
+      <dl class="member-expenses"><div><dt>Adiantou nas contas</dt><dd>${formatMoney(paidBy(group, member.id))}</dd></div><div><dt>Parte nas despesas</dt><dd>${formatMoney(owedBy(group, member.id))}</dd></div></dl>
+      ${personIncomeCard(group, member)}</article>`;
+    }).join('') || '<div class="panel empty-state"><h2>Quem faz parte do grupo?</h2><p>Adicione as pessoas para organizar suas contribuições.</p></div>'}</div>
+    <p class="field-hint">Adiantamentos são valores pagos na hora da compra. A parte de cada pessoa é sua responsabilidade nas despesas. Os acertos registrados já estão descontados do saldo.</p>`;
+}
+function personIncomeCard(group, member) {
+  const record = group.finances?.[selectedMonth]?.find(row => row.memberId === member.id);
+  const dependent = record?.role === 'dependent';
+  const money = value => value == null ? 'Não informado' : formatMoney(value);
+  const ratio = record?.income > 0 && record?.contribution != null ? Math.min(100, record.contribution / record.income * 100) : null;
+  return `<section class="member-income"><div class="member-section-title">${icon('wallet', 16)} <h3>Renda e contribuição</h3></div>${dependent ? '<p class="member-dependent">Conta no tamanho da casa. Não entra na renda disponível nem recebe parcelas na divisão familiar.</p>' : `<dl class="member-income-values"><div><dt>Renda líquida</dt><dd>${money(record?.income)}</dd></div><div><dt>Limite de ajuda</dt><dd>${money(record?.contribution)}</dd></div></dl>${ratio != null ? `<div class="contribution-track" role="img" aria-label="${ratio.toFixed(0)}% da renda disponível para ajudar"><i style="width:${ratio}%"></i></div><p class="member-protected"><span>${ratio.toFixed(0)}% para o grupo</span><span>${formatMoney(record.income - record.contribution)} reservado à pessoa</span></p>` : '<p class="field-hint">Defina quanto pode ajudar sem comprometer toda a renda.</p>'}`}
+    <button class="button secondary compact" data-action="person-income" data-id="${escapeHTML(member.id)}" ${isClosed(group, selectedMonth) ? 'disabled' : ''}>${icon('edit', 16)} ${record ? 'Editar contribuição' : 'Adicionar salário e contribuição'}</button></section>`;
+}
+
+function personIncomeForm(id) {
+  if (isClosed(groupNow(),selectedMonth)) return notify("Reabra o mês antes de alterar as contribuições.");
+  const member = groupNow().members.find(m => m.id === id);
+  if (!member) return;
+  const month = selectedMonth;
+  const row = groupNow().finances?.[month]?.find(r => r.memberId === id);
+  const number = value => value == null ? '' : (value / 100).toFixed(2).replace('.', ',');
+  openDialog(`${dialogTitle('Salário e contribuição', escapeHTML(member.name) + ' · Valores deste mês')}
+    <form id="person-income-form" class="dialog-body" data-member-id="${escapeHTML(id)}" data-month="${month}">
+    <p class="field-hint">Esses valores são de ${month}. Para consultar ou alterar outros meses, abra o orçamento do grupo.</p>
+    <div class="field"><label for="income-role">Participação na casa</label><select id="income-role" name="role">${optionsFor([['contributor', 'Ajuda a pagar'], ['dependent', 'Dependente — não paga']], row?.role || 'contributor')}</select></div>
+    <div class="field"><label for="member-income">Salário / renda líquida mensal (R$)</label><input id="member-income" name="income" inputmode="decimal" placeholder="Não informado" value="${number(row?.income)}" ${row?.role === 'dependent' ? 'disabled' : ''}></div>
+    <div class="field"><label for="member-contribution">Quanto pode ajudar neste grupo (R$)</label><input id="member-contribution" name="contribution" inputmode="decimal" placeholder="Não informado" value="${number(row?.contribution)}" ${row?.role === 'dependent' ? 'disabled' : ''}></div>
+    <p class="field-hint">Só o limite de ajuda entra no orçamento disponível. Dependentes contam no tamanho da casa, sem renda nem cobrança na divisão familiar. Salvar não altera as parcelas de despesas já registradas.</p>
+    <p id="person-income-error" class="budget-error" role="alert"></p><div class="form-actions"><button type="button" class="button secondary" data-action="close-dialog">Cancelar</button><button class="button primary" type="submit">Salvar contribuição</button></div></form>`);
+}
+
+function savePersonIncome(form) {
+  try {
+    assertOpen(form.dataset.month);
+    const data = new FormData(form);
+    const dependent = data.get('role') === 'dependent';
+    const optionalMoney = key => String(data.get(key) || '').trim() ? parseMoney(data.get(key)) : null;
+    const row = { memberId: form.dataset.memberId, role: dependent ? 'dependent' : 'contributor', contributes: !dependent, income: dependent ? null : optionalMoney('income'), contribution: dependent ? 0 : optionalMoney('contribution') };
+    const group = groupNow();
+    const month = form.dataset.month;
+    const finances = { ...group.finances, [month]: [...(group.finances?.[month] || []).filter(r => r.memberId !== row.memberId), row] };
+    if (!isValidGroupFinances(finances)) throw new Error('O limite de ajuda não pode ultrapassar a renda informada.');
+    group.finances = finances;
+    group.sample = false;
+    closeDialog();
+    persist('Salário e contribuição salvos.');
+  } catch (error) { $('#person-income-error').textContent = error.message; }
 }
 
 function renderPersonal() {
-  const personal = db.personal || { identities: {}, budget: null };
+  const personal = db.personal || { identities: {}, budgets: {} };
+  const budget = personal.budgets?.[selectedMonth] || null;
   const totals = personalBalances(db.groups, personal.identities);
   const rows = (items, incoming) =>
     items.length
-      ? `<div class="personal-table-wrap"><table class="personal-table"><thead><tr><th>${incoming ? "Quem paga você" : "Para quem pagar"}</th><th>Grupo</th><th>Falta pagar</th><th>Ação</th></tr></thead><tbody>${items.map((r) => `<tr><td>${escapeHTML(incoming ? r.fromName : r.toName)}</td><td>${escapeHTML(r.groupName)}</td><td>${formatMoney(r.amount)}</td><td><button class="text-action" data-action="personal-payment" data-payment-group="${escapeHTML(r.groupId)}" data-from="${escapeHTML(r.fromId)}" data-to="${escapeHTML(r.toId)}" data-amount="${r.amount}">Registrar ${incoming ? "recebimento" : "pagamento"}</button></td></tr>`).join("")}</tbody><tfoot><tr><th colspan="2">Total</th><td>${formatMoney(incoming ? totals.receivable : totals.payable)}</td><td></td></tr></tfoot></table></div>`
+      ? `<div class="personal-table-wrap"><table class="personal-table"><thead><tr><th>${incoming ? "Quem paga você" : "Para quem pagar"}</th><th>Grupo</th><th>Falta pagar</th><th>Ação</th></tr></thead><tbody>${items.map((r) => `<tr><td>${escapeHTML(incoming ? r.fromName : r.toName)}</td><td>${escapeHTML(r.groupName)}<small class="table-month">${escapeHTML(monthLabel(r.month))}</small></td><td>${formatMoney(r.amount)}</td><td><button class="text-action" data-action="personal-payment" data-payment-group="${escapeHTML(r.groupId)}" data-month="${r.month}" data-from="${escapeHTML(r.fromId)}" data-to="${escapeHTML(r.toId)}" data-amount="${r.amount}">Registrar ${incoming ? "recebimento" : "pagamento"}</button></td></tr>`).join("")}</tbody><tfoot><tr><th colspan="2">Total</th><td>${formatMoney(incoming ? totals.receivable : totals.payable)}</td><td></td></tr></tfoot></table></div>`
       : `<div class="empty-state"><p>${totals.linked ? "Nenhum acerto pendente nos grupos vinculados." : "Escolha quem é você nos grupos abaixo para ver seus acertos."}</p></div>`;
   return `<header class="page-head"><div><p class="eyebrow">SÓ SEU | VISÃO PESSOAL</p><h1>Seu dinheiro, de perto.</h1><p class="page-subtitle">Todos os seus grupos e um plano para o mês.</p></div><button class="button secondary" data-action="new-group">${icon("plus")} Criar grupo</button></header>
     <section class="stats-grid" aria-label="Seus totais"><!-- Amounts remain separate: money owed is not available income. -->${statBlock("Você tem a receber", "wallet", formatMoney(totals.receivable), "Acertos pendentes nos grupos vinculados")}${statBlock("Você ainda tem a pagar", "receipt", formatMoney(totals.payable), "Pagamentos pendentes nos grupos vinculados")}${statBlock("Grupos vinculados", "people", `${totals.linked} de ${db.groups.length}`, "Escolha seu participante em cada grupo")}</section>
@@ -377,15 +405,19 @@ function renderPersonal() {
             .join("")
         : '<p class="page-subtitle">Você pode planejar seu mês mesmo sem criar um grupo.</p>'
     }</div></details>
-    <section class="personal-section"><h2 class="section-title">Quem ainda precisa acertar com você</h2><p class="section-description">Acertos sugeridos a partir do saldo líquido de cada grupo, já descontando os pagamentos registrados. A divisão pode redirecionar quem paga quem; não é uma lista de dívidas originais por despesa.</p><div class="panel">${rows(totals.incoming, true)}</div></section>
+    <section class="personal-section"><h2 class="section-title">Quem ainda precisa acertar com você</h2><p class="section-description">Acertos sugeridos a partir do saldo de cada mês de cada grupo, já descontando os pagamentos registrados. A divisão pode redirecionar quem paga quem; não é uma lista de dívidas originais por despesa.</p><div class="panel">${rows(totals.incoming, true)}</div></section>
     <details class="panel personal-identities"><summary>Seus pagamentos pendentes · ${formatMoney(totals.payable)}</summary>${rows(totals.outgoing, false)}</details>
-    <section class="personal-section"><div class="section-head"><div><h2 class="section-title">Seu dinheiro está indo para onde?</h2><p class="section-description">Entenda o peso dos gastos na sua renda e onde pode haver espaço para economizar. Sem precisar definir uma meta.</p></div></div>${renderBudgetForm(personal.budget)}</section>`;
+    <section class="personal-section"><div class="section-head"><div><h2 class="section-title">Seu dinheiro está indo para onde?</h2><p class="section-description">Entenda o peso dos gastos na sua renda e onde pode haver espaço para economizar. Sem precisar definir uma meta.</p></div></div>${renderBudgetForm(budget)}</section>`;
 }
 
 function renderBudgetForm(budget) {
+  const linked = personalGroupCosts(db.groups, db.personal?.identities || {}, selectedMonth);
   const value = (amount) =>
     amount == null ? "" : (amount / 100).toFixed(2).replace(".", ",");
-  return `<div class="budget-layout"><details class="budget-editor" ${!budget || budget.analysisVersion !== 2 ? "open" : ""}><summary><span>Seus dados e gastos mensais</span><span class="editor-caption">${budget ? "Editar valores" : "Preencher para analisar"}</span></summary><form id="budget-form" class="panel panel-pad"><h3>Como é sua rotina?</h3><p class="field-hint">Use médias mensais e somente a sua parte. Inclua seus gastos dos grupos aqui, uma única vez; eles não são somados automaticamente.</p>
+  return `<section class="group-costs-card"><div><span class="eyebrow">SUA PARTE NOS GRUPOS</span><h3>${formatMoney(linked.total)}</h3><p>Responsabilidade nas despesas de ${escapeHTML(monthLabel(selectedMonth))}. Adiantamentos e acertos não são contados outra vez.</p></div><details><summary>Conferir ${linked.rows.length} parcela(s)</summary><div class="linked-cost-list">${linked.rows.map(row => `<div><span><strong>${escapeHTML(row.title)}</strong><small>${escapeHTML(row.groupName)}</small></span><b>${formatMoney(row.amount)}</b></div>`).join('') || '<p>Nenhuma parcela neste mês nos grupos vinculados.</p>'}</div></details>${linked.unclassified ? `<p class="warning-text">${formatMoney(linked.unclassified)} ainda não foram classificados como essenciais ou opcionais. A análise usa as categorias cadastradas; revise a classificação no grupo para avaliar melhor os não essenciais.</p>` : ''}</section>
+  <div class="budget-layout"><details class="budget-editor" ${!budget || budget.analysisVersion !== 2 ? "open" : ""}><summary><span>Seus dados de ${escapeHTML(monthLabel(selectedMonth))}</span><span class="editor-caption">${budget ? "Editar valores" : "Preencher para analisar"}</span></summary><form id="budget-form" class="panel panel-pad"><h3>Como é sua rotina neste mês?</h3><p class="field-hint">Os valores são guardados por mês. Mudar o período não apaga as análises anteriores.</p>
+    ${!budget && db.personal?.budgets?.[shiftMonth(selectedMonth, -1)] ? '<button type="button" class="button secondary compact" data-action="copy-budget">Usar os valores pessoais do mês anterior</button>' : ''}
+    <section class="integration-choice"><label class="payer-toggle"><input type="checkbox" name="includeGroupShares" id="include-group-shares" ${budget?.includeGroupShares ? 'checked' : ''}> Somar automaticamente minha parte nos grupos</label><p id="integration-hint">${budget?.includeGroupShares ? 'Preencha abaixo somente gastos fora dos grupos. Suas parcelas serão somadas por categoria, uma única vez.' : 'Os campos abaixo representam seus gastos totais, incluindo os grupos. Para ativar a soma automática, retire primeiro desses campos os valores já cadastrados nos grupos.'}</p><span>${budget?.includeGroupShares ? 'Integração ativa' : 'Preenchimento manual'} · ${formatMoney(linked.total)} identificados nos grupos</span></section>
     <div class="field"><label for="budget-income">Quanto você recebe por mês, líquido? (R$)</label><input id="budget-income" name="income" inputmode="decimal" required placeholder="Ex.: 2.500,00" value="${value(budget?.income)}"><p class="field-hint">Se variar, use um valor conservador. Valores a receber dos grupos não entram nesta renda automaticamente.</p></div>
     <div class="field"><label for="budget-housing">Com quem você mora?</label><select id="budget-housing" name="housing">${optionsFor(
       [
@@ -402,7 +434,8 @@ function renderBudgetForm(budget) {
 }
 
 function renderBudgetResult(budget) {
-  return renderBudgetAnalysis(budget);
+  const linked = personalGroupCosts(db.groups, db.personal?.identities || {}, selectedMonth);
+  return renderBudgetAnalysis(integratedBudget(budget, linked));
 }
 
 function saveGroupFinances(form) {
@@ -411,6 +444,7 @@ function saveGroupFinances(form) {
   const data = new FormData(form);
   const optionalMoney = value => String(value ?? '').trim() === '' ? null : parseMoney(value);
   try {
+    assertOpen();
     const records = group.members.map((member,i) => {
       try {
         const role = data.get(`role-${i}`);
@@ -422,7 +456,7 @@ function saveGroupFinances(form) {
         return {memberId:member.id, role, income, contributes, contribution};
       } catch (error) { throw new Error(`${member.name}: ${error.message}`); }
     });
-    const finances = {...group.finances,[groupFinanceMonth]:records};
+    const finances = {...group.finances,[selectedMonth]:records};
     if (!isValidGroupFinances(finances)) throw new Error('Confira os valores. É possível guardar até 120 meses por grupo.');
     group.finances = finances;
     group.sample = false;
@@ -443,11 +477,14 @@ function saveBudget(form) {
       income: parseMoney(fields.get("income")),
       housing: fields.get("housing"),
       analysisVersion: 2,
+      includeGroupShares: fields.get("includeGroupShares") === "on",
       costs,
     };
     analyzeBudget(budget);
     db.personal ||= { identities: {}, budget: null };
-    db.personal.budget = budget;
+    db.personal.budgets ||= {};
+    db.personal.budgets[selectedMonth] = budget;
+    delete db.personal.budget;
     persist("Análise dos gastos salva neste navegador.");
     $("#budget-result").scrollIntoView({
       behavior: "smooth",
@@ -460,6 +497,7 @@ function saveBudget(form) {
 
 const dialog = $("#app-dialog");
 function openDialog(content) {
+  dialog.classList.remove('explanation-dialog');
   $("#dialog-body").innerHTML = content;
   if (!dialog.open) dialog.showModal();
   const first = $(
@@ -502,21 +540,26 @@ const optionsFor = (items, selected) =>
         `<option value="${escapeHTML(id)}" ${selected === id ? "selected" : ""}>${escapeHTML(label)}</option>`,
     )
     .join("");
-function expenseForm(id = null) {
+function expenseForm(id = null, recurring = null) {
   const group = groupNow();
   if (!group?.members.length) {
     notify("Adicione pelo menos um participante antes de registrar despesas.");
     personForm();
     return;
   }
-  const e = id ? group.expenses.find((e) => e.id === id) : null;
-  const family = analyzeGroupMonth(group,(e?.date || today()).slice(0,7));
+  const e = recurring ? recurringExpense(recurring, selectedMonth) : id ? group.expenses.find((e) => e.id === id) : null;
+  if (isClosed(group, (e?.date || defaultExpenseDate()).slice(0,7))) return notify("Reabra este mês antes de alterar despesas.");
+  const family = analyzeGroupMonth(group,(e?.date || defaultExpenseDate()).slice(0,7));
   expenseDraft = {
     id: e?.id || null,
+    recurringId: recurring?.id || null,
+    recurringMonth: recurring ? selectedMonth : null,
     selectedIds: e ? Object.keys(e.shares) : family.members.filter(m=>m.role !== 'dependent').map(m=>m.id),
     mode: e?.mode || (family.familyReady ? 'family' : 'equal'),
     values: e?.values ? { ...e.values } : {},
     originalShares: e?.shares || {},
+    multiplePayers: e ? Object.keys(expensePayments(e)).length > 1 : false,
+    payerValues: e ? Object.fromEntries(Object.entries(expensePayments(e)).map(([id, amount]) => [id, (amount / 100).toFixed(2).replace('.', ',')])) : {},
   };
   if (
     e &&
@@ -531,20 +574,48 @@ function expenseForm(id = null) {
     );
   }
   openDialog(`${dialogTitle(id ? "Editar despesa" : "Nova despesa", "Registre quem pagou e como dividir o valor.")}
-    <form id="expense-form" class="dialog-body"><div class="field"><label for="expense-title">Descrição</label><input id="expense-title" name="title" required maxlength="120" placeholder="Ex.: Jantar de sexta-feira" value="${escapeHTML(e?.title || "")}" /></div>
-    <div class="field-row"><div class="field"><label for="expense-amount">Valor total (R$)</label><input id="expense-amount" name="amount" required inputmode="decimal" placeholder="0,00" autocomplete="off" value="${e ? (e.amount / 100).toFixed(2).replace(".", ",") : ""}" /></div><div class="field"><label for="expense-date">Data</label><input id="expense-date" name="date" required type="date" value="${escapeHTML(e?.date || today())}" /></div></div>
+    <form id="expense-form" class="dialog-body"><div class="field"><label for="expense-title">Descrição</label><input id="expense-title" name="title" required maxlength="120" placeholder="Escreva ou escolha uma sugestão abaixo" value="${escapeHTML(e?.title || "")}" /><div class="expense-presets" aria-label="Sugestões de despesas">${expensePresets.slice(0, 6).map(([title], i) => `<button type="button" class="preset-chip" data-action="expense-preset" data-preset="${i}">${escapeHTML(title)}</button>`).join('')}</div><details class="more-presets"><summary>Mais sugestões</summary><div class="expense-presets">${expensePresets.slice(6).map(([title], i) => `<button type="button" class="preset-chip" data-action="expense-preset" data-preset="${i + 6}">${escapeHTML(title)}</button>`).join('')}</div></details></div>
+    <div class="field-row"><div class="field"><label for="expense-amount">Valor total (R$)</label><input id="expense-amount" name="amount" required inputmode="decimal" placeholder="0,00" autocomplete="off" value="${e ? (e.amount / 100).toFixed(2).replace(".", ",") : ""}" /></div><div class="field"><label for="expense-date">Data</label><input id="expense-date" name="date" required type="date" value="${escapeHTML(e?.date || defaultExpenseDate())}" /></div></div>
     <div class="field-row"><div class="field"><label for="expense-payer">Quem pagou?</label><select id="expense-payer" name="payerId">${optionsFor(
       group.members.map((m) => [m.id, m.name]),
-      e?.payerId || family.contributors[0]?.id || group.members[0].id,
+      (e ? Object.keys(expensePayments(e))[0] : null) || family.contributors[0]?.id || group.members[0].id,
     )}</select></div><div class="field"><label for="expense-category">Categoria</label><select id="expense-category" name="category">${optionsFor(
       Object.entries(categories).map(([key, c]) => [key, c.name]),
       e?.category || "food",
     )}</select></div></div>
+    <div class="payer-box"><label class="payer-toggle"><input type="checkbox" id="multiple-payers" ${expenseDraft.multiplePayers ? 'checked' : ''}> Mais de uma pessoa pagou esta conta</label><p class="field-hint">Registre o que cada pessoa desembolsou. A parte que cada um deve assumir é definida em “Como dividir?”.</p><div id="payer-editor"></div></div>
     <div class="field"><label for="expense-necessity">Como este gasto entra na análise do grupo?</label><select id="expense-necessity" name="necessity">${optionsFor(necessityOptions,e?.necessity || 'unknown')}</select><p class="field-hint">Uma categoria pode ter gastos necessários e opcionais. Classifique pela realidade do grupo.</p></div>
     <div class="field"><label for="expense-note">Observação (opcional)</label><input id="expense-note" name="note" maxlength="400" placeholder="Algo importante sobre este gasto?" value="${escapeHTML(e?.note || "")}" /></div>
-    <div class="split-box"><div class="split-box-title">Como dividir?</div><div id="split-editor"></div></div>
+    ${recurring ? `<p class="recurring-review-note">${icon('calendar')} Revise o valor, quem pagou e a divisão. Esta conta só será lançada ao salvar.</p>` : `<label class="payer-toggle recurring-checkbox"><input type="checkbox" name="makeRecurring" ${group.recurring?.some(t=>t.expense.id===e?.id) ? 'disabled' : ''}> Repetir mensalmente, com revisão antes de lançar</label><p class="field-hint">A partir do próximo mês, esta conta aparecerá como sugestão. Você pode pausar ou pular meses.</p>`}<div class="split-box"><div class="split-box-title">Como dividir?</div><div id="split-editor"></div></div>
     <div class="form-actions"><button type="button" class="button secondary" data-action="close-dialog">Cancelar</button><button type="submit" class="button primary">${e ? "Salvar despesa" : "Registrar despesa"} ${icon("arrow")}</button></div></form>`);
+  renderPayerEditor();
   renderSplitEditor();
+}
+function renderPayerEditor() {
+  const multiple = expenseDraft.multiplePayers;
+  $('#expense-payer').disabled = multiple;
+  $('#expense-payer').closest('.field').hidden = multiple;
+  $('#payer-editor').innerHTML = multiple ? `<div class="payer-inputs">${groupNow().members.map((m, i) => `<div class="field"><label for="payer-value-${i}">${escapeHTML(m.name)} pagou (R$)</label><input id="payer-value-${i}" data-payer-id="${escapeHTML(m.id)}" inputmode="decimal" placeholder="0,00" value="${escapeHTML(expenseDraft.payerValues[m.id] || '')}"></div>`).join('')}</div><p id="payer-summary" class="field-hint" role="status"></p>` : '';
+  updatePayerPreview();
+}
+function readExpensePayers(amount) {
+  if (!expenseDraft.multiplePayers) return { [$('#expense-payer').value]: amount };
+  const payers = Object.fromEntries(groupNow().members.map(m => [m.id, parseMoney(expenseDraft.payerValues[m.id] || '0')]).filter(([, value]) => value > 0));
+  if (Object.values(payers).reduce((sum, value) => sum + value, 0) !== amount || !Object.keys(payers).length) {
+    throw new Error('A soma de quem pagou precisa ser igual ao valor total da despesa.');
+  }
+  return payers;
+}
+function updatePayerPreview() {
+  const summary = $('#payer-summary');
+  if (!summary) return;
+  try {
+    const amount = parseMoney($('#expense-amount').value || '0');
+    const total = Object.values(expenseDraft.payerValues).reduce((sum, value) => sum + parseMoney(value || '0'), 0);
+    const difference = amount - total;
+    summary.textContent = `Informado: ${formatMoney(total)} · ${difference > 0 ? 'Falta informar ' + formatMoney(difference) : difference < 0 ? 'Acima do total: ' + formatMoney(-difference) : 'Valores conferem'}`;
+    summary.classList.toggle('negative', difference !== 0);
+  } catch { summary.textContent = 'Use valores válidos, como 35,90.'; }
 }
 function renderSplitEditor() {
   if (!expenseDraft || !$("#split-editor")) return;
@@ -581,7 +652,7 @@ function updateSplitPreview() {
     const total = parseMoney($("#expense-amount")?.value || "");
     const shares = draftExpenseShares(total,$('#expense-date').value);
     node.classList.remove("error");
-    node.textContent = `Divisão pronta: ${Object.keys(shares).map((id) => `${nameOf(groupNow(), id)} ${formatMoney(shares[id])}`).join(" · ")}`;
+    node.innerHTML = `<div class="split-preview-heading">${icon('check',16)} Divisão pronta</div><div class="split-preview-list">${Object.entries(shares).map(([id, amount]) => `<div><span>${escapeHTML(nameOf(groupNow(),id))}</span><strong>${formatMoney(amount)}</strong></div>`).join('')}</div>`;
   } catch (error) {
     node.classList.add("error");
     node.textContent = error.message;
@@ -594,7 +665,7 @@ function draftExpenseShares(amount,date) {
   const ids = expenseDraft.selectedIds.filter(id=>!rows.some(r=>r.memberId===id && r.role==='dependent'));
   return sharesForExpense(amount,ids,expenseDraft.mode,expenseDraft.values);
 }
-function paymentForm(from = null, to = null, amount = null) {
+function paymentForm(from = null, to = null, amount = null, month = selectedMonth, editId = null) {
   const group = groupNow();
   if (!group || group.members.length < 2) {
     notify(
@@ -602,10 +673,12 @@ function paymentForm(from = null, to = null, amount = null) {
     );
     return;
   }
+  const existing = group.payments.find(p => p.id === editId);
+  if (existing) { from = existing.fromId; to = existing.toId; amount = existing.amount; month = paymentMonth(existing); }
   const pairs = group.members.map((m) => [m.id, m.name]);
-  openDialog(`${dialogTitle("Registrar pagamento", "Informe a transferência que já aconteceu. Isso atualiza os saldos do grupo.")}
-    <form id="payment-form" class="dialog-body"><div class="field-row"><div class="field"><label for="payment-from">Quem pagou?</label><select name="fromId" id="payment-from">${optionsFor(pairs, from || pairs[0][0])}</select></div><div class="field"><label for="payment-to">Quem recebeu?</label><select name="toId" id="payment-to">${optionsFor(pairs, to || pairs[1][0])}</select></div></div>
-    <div class="field-row"><div class="field"><label for="payment-amount">Valor transferido</label><input id="payment-amount" name="amount" inputmode="decimal" required placeholder="0,00" value="${amount ? (amount / 100).toFixed(2).replace(".", ",") : ""}" /></div><div class="field"><label for="payment-date">Data</label><input id="payment-date" type="date" name="date" value="${today()}" required /></div></div><div class="warning-text">Registre somente pagamentos reais. O Dividi Aí não envia dinheiro nem realiza Pix.</div>
+  openDialog(`${dialogTitle("Registrar pagamento", "Informe a transferência que já aconteceu. Isso atualiza os saldos do mês escolhido.")}
+    <form id="payment-form" class="dialog-body"><input type="hidden" name="id" value="${escapeHTML(editId || '')}"><div class="field"><label for="payment-month">Este acerto pertence a qual mês?</label><input type="month" name="settlementMonth" id="payment-month" value="${month}" required><p class="field-hint">Você pode pagar hoje uma dívida de outro mês. A data abaixo informa quando a transferência aconteceu.</p></div><div class="field-row"><div class="field"><label for="payment-from">Quem pagou?</label><select name="fromId" id="payment-from">${optionsFor(pairs, from || pairs[0][0])}</select></div><div class="field"><label for="payment-to">Quem recebeu?</label><select name="toId" id="payment-to">${optionsFor(pairs, to || pairs[1][0])}</select></div></div>
+    <div class="field-row"><div class="field"><label for="payment-amount">Valor transferido</label><input id="payment-amount" name="amount" inputmode="decimal" required placeholder="0,00" value="${amount ? (amount / 100).toFixed(2).replace(".", ",") : ""}" /></div><div class="field"><label for="payment-date">Data</label><input id="payment-date" type="date" name="date" value="${existing?.date || today()}" required /></div></div><div class="warning-text">Registre somente pagamentos reais. O Dividi Aí não envia dinheiro nem realiza Pix.</div>
     <div class="form-actions"><button class="button secondary" data-action="close-dialog" type="button">Cancelar</button><button class="button primary" type="submit">Salvar pagamento ${icon("check")}</button></div></form>`);
 }
 
@@ -680,12 +753,12 @@ function handleExpenseSubmit(form) {
   const title = String(data.get("title") || "").trim();
   if (!title || title.length > 120)
     return notify("Informe uma descrição válida.");
-  const payerId = String(data.get("payerId"));
-  if (!group.members.some((m) => m.id === payerId))
-    return notify("Escolha quem pagou.");
-  let amount, shares;
+  let amount, shares, payers;
   try {
+    assertOpen(String(data.get("date")).slice(0,7));
+    if (expenseDraft.recurringMonth && expenseDraft.recurringMonth !== String(data.get("date")).slice(0,7)) throw new Error("Use uma data do mês que está sendo revisado.");
     amount = parseMoney(data.get("amount"));
+    payers = readExpensePayers(amount);
     shares = draftExpenseShares(amount,String(data.get('date')));
   } catch (error) {
     notify(error.message);
@@ -697,7 +770,7 @@ function handleExpenseSubmit(form) {
     id: expenseDraft.id || makeId(),
     title,
     amount,
-    payerId,
+    payers,
     category: String(data.get("category")),
     necessity: String(data.get('necessity') || 'unknown'),
     date: String(data.get("date")),
@@ -707,12 +780,25 @@ function handleExpenseSubmit(form) {
     values: { ...expenseDraft.values },
     createdAt: new Date().toISOString(),
   };
+  if (data.get('makeRecurring') && (group.recurring || []).length >= 100) return notify('Limite de 100 contas recorrentes por grupo.');
+  if (expenseDraft.recurringId) {
+    const template = group.recurring.find(t => t.id === expenseDraft.recurringId);
+    if (!template || template.handled.includes(expenseDraft.recurringMonth)) return notify('Esta conta já foi revisada neste mês.');
+    item.recurringId = template.id;
+    template.handled.push(expenseDraft.recurringMonth);
+  }
   if (expenseDraft.id) {
     const i = group.expenses.findIndex((e) => e.id === expenseDraft.id);
     if (i === -1) return notify("Despesa não encontrada.");
     item.createdAt = group.expenses[i].createdAt || item.createdAt;
+    if (group.expenses[i].recurringId) item.recurringId = group.expenses[i].recurringId;
     group.expenses[i] = item;
   } else group.expenses.push(item);
+  if (data.get('makeRecurring')) {
+    group.recurring ||= [];
+    group.recurring.push({id:makeId(), active:true, startMonth:shiftMonth(item.date.slice(0,7),1), day:Number(item.date.slice(8)), handled:[], expense:structuredClone(item)});
+  }
+  selectedMonth = item.date.slice(0,7);
   group.sample = false;
   closeDialog();
   persist("Despesa salva. Saldos atualizados.");
@@ -738,24 +824,34 @@ function handlePaymentSubmit(form) {
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(data.get("date"))))
     return notify("Data inválida.");
-  group.payments.push({
-    id: makeId(),
+  const settlementMonth = String(data.get("settlementMonth"));
+  if (!isMonth(settlementMonth)) return notify("Escolha o mês ao qual pertence o acerto.");
+  if (![fromId,toId].every(id => monthGroup(group,settlementMonth).members.some(m => m.id === id))) return notify('Escolha participantes que fazem parte do extrato deste mês.');
+  const paymentId = String(data.get("id") || "");
+  const payment = {
+    id: paymentId || makeId(),
+    settlementMonth,
     fromId,
     toId,
     amount,
     date: String(data.get("date")),
     createdAt: new Date().toISOString(),
-  });
+  };
+  const existingIndex = group.payments.findIndex(p => p.id === paymentId);
+  if (paymentId && existingIndex < 0) return notify("Pagamento não encontrado.");
+  if (existingIndex >= 0) group.payments[existingIndex] = payment;
+  else group.payments.push(payment);
   group.sample = false;
   closeDialog();
-  persist("Pagamento registrado.");
+  persist(paymentId ? "Pagamento atualizado." : "Pagamento registrado.");
 }
-function deleteExpense(id) {
+async function deleteExpense(id) {
   const group = groupNow(),
     e = group.expenses.find((e) => e.id === id);
   if (!e) return;
+  if (isClosed(group, e.date.slice(0,7))) return notify("Reabra este mês antes de excluir despesas.");
   if (
-    !confirm(
+    !await requestDecision(
       `Excluir a despesa "${e.title}" (${formatMoney(e.amount)})? Os saldos serão recalculados.`,
     )
   )
@@ -764,31 +860,32 @@ function deleteExpense(id) {
   group.sample = false;
   persist("Despesa excluída.");
 }
-function deletePayment(id) {
+async function deletePayment(id) {
   const group = groupNow();
   const p = group.payments.find((p) => p.id === id);
   if (
     !p ||
-    !confirm(`Excluir o registro de pagamento de ${formatMoney(p.amount)}?`)
+    !await requestDecision(`Excluir o registro de pagamento de ${formatMoney(p.amount)}? O acerto deixará de abater a dívida e os saldos serão recalculados. Isso não estorna uma transferência feita fora do aplicativo.`)
   )
     return;
   group.payments = group.payments.filter((p) => p.id !== id);
   group.sample = false;
   persist("Pagamento removido.");
 }
-function deletePerson(id) {
+async function deletePerson(id) {
   const group = groupNow();
   const m = group.members.find((m) => m.id === id);
   if (!m) return;
+  if (Object.values(group.statementMembers || {}).some(rows => rows.some(member => member.id === id))) return notify('Esta pessoa faz parte de um extrato fechado. Reabra os meses relacionados antes de removê-la.');
   const used =
     group.expenses.some(
-      (e) => e.payerId === id || Object.hasOwn(e.shares, id),
-    ) || group.payments.some((p) => p.fromId === id || p.toId === id);
+      (e) => Object.hasOwn(expensePayments(e), id) || Object.hasOwn(e.shares, id),
+    ) || group.payments.some((p) => p.fromId === id || p.toId === id) || (group.recurring || []).some(t => Object.hasOwn(t.expense.shares,id) || Object.hasOwn(expensePayments(t.expense),id));
   if (used)
     return notify(
-      "Essa pessoa já possui lançamentos. Exclua as despesas e pagamentos vinculados antes de removê-la.",
+      "Essa pessoa já possui lançamentos ou modelos de contas recorrentes. Remova os modelos, despesas e pagamentos vinculados antes de removê-la.",
     );
-  if (!confirm(`Remover ${m.name} deste grupo?`)) return;
+  if (!await requestDecision(`Remover ${m.name} deste grupo?`)) return;
   group.members = group.members.filter((m) => m.id !== id);
   if (group.finances) for (const month of Object.keys(group.finances)) group.finances[month] = group.finances[month].filter(r=>r.memberId!==id);
   if (db.personal?.identities[group.id] === id)
@@ -796,12 +893,12 @@ function deletePerson(id) {
   group.sample = false;
   persist("Participante removido.");
 }
-function deleteGroup() {
+async function deleteGroup() {
   const group = groupNow();
   if (
     !group ||
-    !confirm(
-      `Excluir definitivamente "${group.name}" e todas as despesas e pagamentos? Faça um backup antes, se precisar.`,
+    !await requestDecision(
+      `Excluir "${group.name}" e todas as despesas, recorrências e pagamentos? A remoção ficará disponível no Histórico.`,
     )
   )
     return;
@@ -813,10 +910,11 @@ function deleteGroup() {
   closeDialog();
   persist("Grupo excluído.");
 }
-function resetData() {
+async function resetData() {
   if (
-    !confirm(
-      "Apagar todos os grupos, despesas, participantes e pagamentos deste navegador? Essa ação não pode ser desfeita. Exporte um backup se quiser guardar os dados.",
+    !await requestDecision(
+      "Apagar todos os grupos, despesas, participantes e pagamentos deste navegador? Essa ação também apaga o Histórico e não pode ser desfeita. Exporte um backup se quiser guardar os dados.",
+      {title:"Apagar todos os dados?",label:"Apagar tudo",hint:"Esta limpeza é definitiva. O Histórico também será removido."},
     )
   )
     return;
@@ -824,7 +922,7 @@ function resetData() {
   view = "overview";
   expenseFilter = { text: "", category: "all" };
   closeDialog();
-  persist("Tudo limpo. Pode começar de novo.");
+  persist("Tudo limpo. Pode começar de novo.", {audit:false});
 }
 function exportData() {
   const filename = `dividi-ai-backup-${today()}.json`;
@@ -844,14 +942,14 @@ function exportData() {
 }
 async function importData(file) {
   if (!file) return;
-  if (file.size > 3_000_000)
-    return notify("Arquivo muito grande. O limite é de 3 MB.");
+  if (file.size > 8_000_000)
+    return notify("Arquivo muito grande. O limite é de 8 MB.");
   try {
     const parsed = JSON.parse(await file.text());
     if (!isValidData(parsed))
       throw new Error("Estrutura de dados incompatível ou inválida.");
     if (
-      !confirm(
+      !await requestDecision(
         `Importar ${parsed.groups.length} grupo(s)? Isso SUBSTITUIRÁ todos os dados salvos neste navegador.`,
       )
     )
@@ -859,11 +957,14 @@ async function importData(file) {
     db = {
       version: 1,
       groups: parsed.groups,
+      history: parsed.history || [],
       ...(parsed.personal ? { personal: parsed.personal } : {}),
       activeGroupId: parsed.groups.some((g) => g.id === parsed.activeGroupId)
         ? parsed.activeGroupId
         : parsed.groups[0]?.id || null,
     };
+    migrateData(db);
+    selectedMonth = nextOpenMonth(groupNow());
     view = "overview";
     expenseFilter = { text: "", category: "all" };
     persist("Backup importado com sucesso.");
@@ -874,9 +975,9 @@ async function importData(file) {
 async function shareSummary() {
   const g = groupNow();
   if (!g) return;
-  const s = groupStats(g);
+  const s = groupStats(monthGroup(g, selectedMonth));
   const lines = [
-    `Dividi Aí · ${g.name}`,
+    `Dividi Aí · ${g.name} · ${monthLabel(selectedMonth)}`,
     `Despesas: ${formatMoney(s.total)} · ${g.members.length} participantes`,
     "",
     "Acertos sugeridos:",
@@ -901,7 +1002,7 @@ async function shareSummary() {
   }
 }
 
-document.addEventListener("click", (event) => {
+document.addEventListener("click", async (event) => {
   const btn = event.target.closest(
     "button[data-action],button[data-view],button[data-group],button[data-mode]",
   );
@@ -926,6 +1027,99 @@ document.addEventListener("click", (event) => {
     return;
   }
   const action = btn.dataset.action;
+  if (action === 'explain-pending' || action === 'explain-settlement') {
+    const group = groupNow();
+    if (!group) return;
+    openDialog(`${dialogTitle('Entenda o que falta acertar', 'As despesas e os pagamentos que formaram o saldo deste mês.')}${renderPendingExplanation(monthGroup(group,selectedMonth),selectedMonth,btn.dataset.from,btn.dataset.to)}`);
+    dialog.classList.add('explanation-dialog');
+    const title = $('#dialog-title'); title.tabIndex = -1; title.focus({preventScroll:true}); dialog.scrollTop = 0;
+    return;
+  }
+  if (action === 'history') { view = 'history'; render(); return; }
+  if (['previous-month','next-month','current-month','open-month'].includes(action)) {
+    const month = action === 'current-month' ? currentMonth() : action === 'open-month' ? btn.dataset.month : shiftMonth(selectedMonth, action === 'previous-month' ? -1 : 1);
+    if (!isMonth(month) || month < '1000-01' || month > '9998-12') return;
+    selectedMonth = month;
+    if (action === 'open-month') view = 'overview';
+    expenseFilter = { text:'', category:'all' }; render(); return;
+  }
+  if (action === 'close-month' || action === 'reopen-month') {
+    const group = groupNow();
+    const closing = action === 'close-month';
+    if (closing && selectedMonth > currentMonth()) return notify('O mês ainda não começou. Feche somente meses atuais ou anteriores.');
+    const stats = groupStats(monthGroup(group, selectedMonth));
+    if (!await requestDecision(closing ? 'As despesas e rendas deste período ficam protegidas contra alterações. O próximo mês terá seus próprios lançamentos. Os acertos pendentes continuam visíveis e podem ser pagos depois.' : 'O extrato volta a aceitar alterações nas despesas e rendas. Os pagamentos e registros existentes serão preservados.', {
+      title: `${closing ? 'Fechar' : 'Reabrir'} ${monthLabel(selectedMonth)}?`, label: closing ? 'Fechar e ir ao próximo mês' : 'Reabrir extrato',
+      metrics:[{label:'Despesas do mês',value:formatMoney(stats.total)},{label:'Ainda falta acertar',value:formatMoney(stats.pending)}],
+      hint: closing ? 'Nenhuma despesa será apagada. Contas recorrentes não revisadas não serão lançadas. Você pode voltar a este extrato pelo seletor de mês.' : 'As próximas alterações aparecerão no Histórico.',
+    })) return;
+    group.closedMonths = closing ? [...new Set([...(group.closedMonths || []), selectedMonth])] : (group.closedMonths || []).filter(m => m !== selectedMonth);
+    if (closing) group.statementMembers = {...group.statementMembers,[selectedMonth]:structuredClone(group.members)};
+    else if (group.statementMembers) delete group.statementMembers[selectedMonth];
+    if (persist(`${monthLabel(selectedMonth)}: ${closing ? 'mês fechado' : 'mês reaberto'}.`) && closing) { selectedMonth = shiftMonth(selectedMonth,1); render(); }
+    return;
+  }
+  if (action === 'undo-change') {
+    const entry = db.history?.find(row => row.id === btn.dataset.id);
+    if (!entry || entry.undoneAt) return notify('Esta alteração não está disponível para desfazer.');
+    if (!await requestDecision('Os dados afetados voltarão ao estado anterior a esta alteração. Outras operações que não dependem deles serão preservadas.', {title:'Desfazer esta alteração?',label:'Desfazer alteração',details:[entry.label, entry.context || 'Conta local']})) return;
+    try {
+      const next = undoChange(db, entry.id);
+      for (const group of db.groups) {
+        const restored = next.groups.find(g => g.id === group.id);
+        if (!restored) continue;
+        for (const month of group.closedMonths || []) {
+          if (isClosed(restored, month) && (JSON.stringify(monthGroup(group, month).expenses) !== JSON.stringify(monthGroup(restored, month).expenses) || JSON.stringify(group.finances?.[month]) !== JSON.stringify(restored.finances?.[month]))) throw new Error('Reabra o mês afetado antes de desfazer esta alteração.');
+        }
+      }
+      if (!isValidData(next)) throw new Error('Há registros relacionados a esta alteração. Desfaça-os primeiro para preservar os dados.');
+      db = next; persist('Alteração desfeita.', {audit:false});
+    } catch (error) { notify(error.message); }
+    return;
+  }
+  if (action === 'review-recurring') {
+    const template = recurringDue(groupNow(), selectedMonth).find(t => t.id === btn.dataset.id);
+    if (template) expenseForm(null, template);
+    return;
+  }
+  if (action === 'skip-recurring' || action === 'toggle-recurring' || action === 'delete-recurring') {
+    const template = groupNow().recurring?.find(t => t.id === btn.dataset.id);
+    if (!template) return;
+    if (action === 'delete-recurring') {
+      if (!await requestDecision(`Excluir o modelo recorrente “${template.expense.title}”? As despesas já lançadas e seus acertos serão mantidos.`, {title:'Remover esta recorrência?',label:'Remover modelo'})) return;
+      groupNow().recurring = groupNow().recurring.filter(t => t.id !== template.id);
+      persist(`Modelo recorrente removido: ${template.expense.title}.`);
+      return;
+    }
+    if (action === 'skip-recurring') {
+      if (isClosed(groupNow(),selectedMonth)) return notify('Reabra o mês antes de revisar contas recorrentes.');
+      if (!await requestDecision(`A conta “${template.expense.title}” não será lançada em ${monthLabel(selectedMonth)}. Ela continua programada para os outros meses.`, {title:'Pular esta conta no mês?',label:'Pular este mês'})) return;
+      template.handled = [...new Set([...template.handled, selectedMonth])];
+      persist(`Conta recorrente pulada: ${template.expense.title}.`);
+    } else {
+      template.active = !template.active;
+      persist(`Conta recorrente ${template.active ? 'retomada' : 'pausada'}: ${template.expense.title}.`);
+    }
+    return;
+  }
+  if (action === 'copy-budget') {
+    const previous = db.personal?.budgets?.[shiftMonth(selectedMonth,-1)];
+    if (!previous) return;
+    db.personal.budgets[selectedMonth] = structuredClone(previous);
+    persist('Valores pessoais copiados. Revise sua renda e seus gastos deste mês.');
+    return;
+  }
+  if (action === 'edit-payment') return paymentForm(null, null, null, selectedMonth, btn.dataset.id);
+  if (action === 'person-income') return personIncomeForm(btn.dataset.id);
+  if (action === 'expense-preset') {
+    const preset = expensePresets[Number(btn.dataset.preset)];
+    if (!preset || !expenseDraft) return;
+    $('#expense-title').value = preset[0];
+    $('#expense-category').value = preset[1];
+    $('#expense-category').dispatchEvent(new Event('change', { bubbles: true }));
+    $('#expense-amount').focus();
+    return;
+  }
   if (action === "toggle-theme") {
     theme = theme === "light" ? "dark" : "light";
     saveTheme(theme);
@@ -937,9 +1131,17 @@ document.addEventListener("click", (event) => {
   if (action === 'apply-family-split') {
     try {
       const group = groupNow();
-      const plan = proposeFamilyMonth(group,groupFinanceMonth);
+      assertOpen();
+      const plan = proposeFamilyMonth(group,selectedMonth);
       if (!plan.length) return;
-      if (!confirm(`Redistribuir as ${plan.length} despesas de ${groupFinanceMonth} entre os contribuintes, respeitando seus limites e sem cobrar dependentes? Isso substitui as parcelas existentes. Quem pagou e os acertos registrados serão mantidos; os saldos serão recalculados.`)) return;
+      const analysis = analyzeGroupMonth(group, selectedMonth);
+      if (!await requestDecision(`As parcelas de ${monthLabel(selectedMonth)} serão redistribuídas na proporção dos limites de ajuda. Confira a mudança para cada pessoa. Dependentes não receberão cobranças.`, {
+        title: 'Aplicar a divisão familiar?',
+        label: 'Aplicar às despesas deste mês',
+        metrics: [{label:'Despesas',value:String(plan.length)}, {label:'Total do mês',value:formatMoney(analysis.spending)}],
+        comparisons: analysis.members.map(member => ({name:member.name,before:member.allocated,after:member.suggested || 0,dependent:member.role === 'dependent',limit:member.contribution})),
+        hint: 'Quem pagou na hora, os valores totais e os acertos já registrados serão mantidos. Os saldos serão recalculados. Outros meses não mudam. Você poderá desfazer esta divisão pelo Histórico enquanto essas despesas não forem alteradas novamente.',
+      })) return;
       for (const row of plan) {
         const expense=group.expenses.find(e=>e.id===row.id);
         expense.shares=row.shares;expense.mode='family';expense.values={};
@@ -950,8 +1152,9 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (action === 'delete-group-finance') {
-    if (!confirm('Apagar as rendas e contribuições deste mês? As despesas e os outros meses serão mantidos.')) return;
-    delete groupNow().finances[groupFinanceMonth];
+    if (isClosed(groupNow(), selectedMonth)) return notify("Reabra o mês para alterar suas rendas.");
+    if (!await requestDecision('Apagar as rendas e contribuições deste mês? As despesas e os outros meses serão mantidos.')) return;
+    delete groupNow().finances[selectedMonth];
     persist('Rendas deste mês apagadas.');
     return;
   }
@@ -963,16 +1166,17 @@ document.addEventListener("click", (event) => {
       btn.dataset.from,
       btn.dataset.to,
       Number(btn.dataset.amount),
+      btn.dataset.month || selectedMonth,
     );
   }
   if (action === "delete-budget") {
     if (
-      !confirm(
+      !await requestDecision(
         "Apagar sua renda e seu planejamento mensal deste navegador? Os grupos serão mantidos.",
       )
     )
       return;
-    if (db.personal) db.personal.budget = null;
+    if (db.personal?.budgets) delete db.personal.budgets[selectedMonth];
     persist("Planejamento removido.");
     return;
   }
@@ -986,6 +1190,7 @@ document.addEventListener("click", (event) => {
       btn.dataset.from,
       btn.dataset.to,
       Number(btn.dataset.amount),
+      btn.dataset.month || selectedMonth,
     );
   if (action === "delete-expense") return deleteExpense(btn.dataset.id);
   if (action === "delete-payment") return deletePayment(btn.dataset.id);
@@ -999,6 +1204,11 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
+  if (event.target.id === 'person-income-form') {
+    event.preventDefault();
+    savePersonIncome(event.target);
+    return;
+  }
   if (event.target.id === 'group-finance-form') {
     event.preventDefault();
     saveGroupFinances(event.target);
@@ -1027,28 +1237,42 @@ document.addEventListener("submit", (event) => {
 document.addEventListener("input", (event) => {
   if (event.target.id === "expense-search") {
     expenseFilter.text = event.target.value;
-    const start = event.target.selectionStart,
-      end = event.target.selectionEnd;
-    render();
-    const input = $("#expense-search");
-    input.focus();
-    try {
-      input.setSelectionRange(start, end);
-    } catch {
-      /* input types may vary */
-    }
+    const results = $('#expense-results');
+    if (results && groupNow()) results.outerHTML = renderExpenseResults(monthGroup(groupNow(), selectedMonth));
   }
-  if (event.target.id === "expense-amount") updateSplitPreview();
+  if (event.target.id === "expense-amount") { updateSplitPreview(); updatePayerPreview(); }
+  if (event.target.matches('[data-payer-id]')) {
+    expenseDraft.payerValues[event.target.dataset.payerId] = event.target.value;
+    updatePayerPreview();
+  }
   if (event.target.matches("[data-split-id]")) {
     expenseDraft.values[event.target.dataset.splitId] = event.target.value;
     updateSplitPreview();
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.id === 'statement-month') {
+    if (!isMonth(event.target.value)) { event.target.value = selectedMonth; return; }
+    selectedMonth = event.target.value; expenseFilter = {text:'',category:'all'}; render(); return;
+  }
+  if (event.target.id === 'include-group-shares') {
+    $('#integration-hint').textContent = event.target.checked ? 'Preencha abaixo somente gastos fora dos grupos. Retire os valores dos grupos que já estavam nos campos; as parcelas serão somadas automaticamente, uma única vez.' : 'Preencha seus gastos totais, incluindo a sua parte nos grupos. A soma automática está desligada.';
+    return;
+  }
+  if (event.target.id === 'multiple-payers') {
+    expenseDraft.multiplePayers = event.target.checked;
+    renderPayerEditor();
+    return;
+  }
+  if (event.target.id === 'income-role') {
+    $('#member-income').disabled = event.target.value === 'dependent';
+    $('#member-contribution').disabled = event.target.value === 'dependent';
+    return;
+  }
   if (event.target.id === 'expense-date') { readSplitInputs(); renderSplitEditor(); return; }
   if (event.target.id === 'group-finance-month') {
-    if (!isMonth(event.target.value)) { event.target.value = groupFinanceMonth; return; }
-    groupFinanceMonth = event.target.value;
+    if (!isMonth(event.target.value)) { event.target.value = selectedMonth; return; }
+    selectedMonth = event.target.value;
     render();
     $('#group-finance-month').focus();
     return;
@@ -1062,6 +1286,7 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (event.target.matches('[data-expense-necessity]')) {
+    if (isClosed(groupNow(), selectedMonth)) { render(); return notify("Reabra o mês para alterar as classificações."); }
     const id = event.target.dataset.expenseNecessity;
     const expense = groupNow()?.expenses.find(e=>e.id===id);
     if (!expense || !necessityOptions.some(([value])=>value===event.target.value)) return;
@@ -1142,3 +1367,16 @@ if (
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   });
 }
+
+// A aba pode atravessar a virada do mês sem recarregar. Não interrompa formulários abertos.
+let observedMonth = currentMonth();
+function checkMonthRollover() {
+  const next = currentMonth();
+  if (next !== observedMonth && !document.querySelector('dialog[open]')) {
+    if (selectedMonth === observedMonth) selectedMonth = next;
+    observedMonth = next;
+    render();
+  }
+}
+window.addEventListener('focus', checkMonthRollover);
+setInterval(checkMonthRollover, 60000);

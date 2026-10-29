@@ -1,4 +1,6 @@
 import { groupStats } from './engine.js';
+import { groupMonths, monthGroup } from './months.js';
+import { isMonth } from './group-finance.js';
 
 export const budgetCategories = [
   ['housing', 'Paga aluguel ou parcela da moradia?', true],
@@ -19,11 +21,13 @@ export const budgetCategories = [
 
 export function isValidPersonal(personal) {
   if (!personal || typeof personal !== 'object' || Array.isArray(personal)) return false;
+  if (personal.budgets != null && (typeof personal.budgets !== 'object' || Array.isArray(personal.budgets) || Object.keys(personal.budgets).length > 1200 || !Object.entries(personal.budgets).every(([month, budget]) => isMonth(month) && isValidPersonal({identities:{}, budget})))) return false;
   const ids = personal.identities;
   if (!ids || typeof ids !== 'object' || Array.isArray(ids) || Object.keys(ids).length > 150) return false;
   if (!Object.entries(ids).every(([key, value]) => key.length < 150 && typeof value === 'string' && value.length < 150)) return false;
   if (personal.budget == null) return true;
   const b = personal.budget;
+  if (b.includeGroupShares != null && typeof b.includeGroupShares !== 'boolean') return false;
   const money = v => Number.isSafeInteger(v) && v >= 0 && v <= 100_000_000_000;
   return typeof b === 'object' && money(b.income) && (b.targetPercent == null || (Number.isFinite(b.targetPercent) && b.targetPercent >= 0 && b.targetPercent <= 100)) &&
     ['alone','shared','family'].includes(b.housing) && !!b.costs && typeof b.costs === 'object' &&
@@ -37,8 +41,8 @@ export function personalBalances(groups, identities = {}) {
     const me = Object.hasOwn(identities, group.id) ? identities[group.id] : null;
     if (!group.members.some(m => m.id === me)) continue;
     linked++;
-    for (const payment of groupStats(group).settlements) {
-      const row = { ...payment, groupId:group.id, groupName:group.name,
+    for (const month of groupMonths(group)) for (const payment of groupStats(monthGroup(group, month)).settlements) {
+      const row = { ...payment, month, groupId:group.id, groupName:group.name,
         fromName:group.members.find(m => m.id === payment.fromId).name,
         toName:group.members.find(m => m.id === payment.toId).name };
       if (payment.toId === me) incoming.push(row);
@@ -48,6 +52,34 @@ export function personalBalances(groups, identities = {}) {
   return { incoming, outgoing, linked,
     receivable:incoming.reduce((sum,r) => sum+r.amount,0),
     payable:outgoing.reduce((sum,r) => sum+r.amount,0) };
+}
+
+export function personalGroupCosts(groups, identities, month) {
+  const costs = Object.fromEntries(budgetCategories.map(([key]) => [key, 0]));
+  const mapping = { food:'food', stay:'housing', transport:'transport', health:'health', education:'health', leisure:'leisure', shopping:'shopping', delivery:'delivery', subscriptions:'subscriptions', other:'other' };
+  const rows = [];
+  let unclassified = 0;
+  for (const group of groups) {
+    const id = identities[group.id];
+    if (!group.members.some(m => m.id === id)) continue;
+    for (const expense of monthGroup(group, month).expenses) {
+      const amount = expense.shares[id] || 0;
+      if (!amount) continue;
+      let category = mapping[expense.category] || 'other';
+      const essential = budgetCategories.find(([key]) => key === category)?.[2];
+      if (expense.necessity === 'discretionary' && essential) category = 'shopping';
+      if (expense.necessity === 'essential' && !essential) category = 'other';
+      if (!expense.necessity || expense.necessity === 'unknown') unclassified += amount;
+      costs[category] += amount;
+      rows.push({ groupName:group.name, title:expense.title, amount, category });
+    }
+  }
+  return { costs, rows, unclassified, total:rows.reduce((sum, r) => sum + r.amount, 0) };
+}
+
+export function integratedBudget(budget, groupCosts) {
+  if (!budget?.includeGroupShares) return budget;
+  return { ...budget, costs:Object.fromEntries(budgetCategories.map(([key]) => [key, (budget.costs[key] || 0) + (groupCosts.costs[key] || 0)])) };
 }
 
 export function calculateBudget(budget) {
