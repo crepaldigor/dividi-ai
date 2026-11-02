@@ -1,4 +1,4 @@
-const CACHE = "dividi-ai-static-v16";
+const CACHE = "dividi-ai-static-v17";
 const ASSETS = [
   "./",
   "./index.html",

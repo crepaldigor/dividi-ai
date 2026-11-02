@@ -5453,29 +5453,34 @@ select:disabled { opacity: .6; }
 .finance-form-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
 
 /* 08 | Participantes: saldo, despesas e capacidade em blocos distintos */
-.member-card { padding: 24px; display: flex; flex-direction: column; }
+.member-card { padding: 26px; display: flex; flex-direction: column; }
 .member-header { display: flex; gap: 12px; align-items: center; }
 .member-header > div { flex: 1; min-width: 0; }
 .member-header h2 { margin: 0 0 5px; font-size: 17px; overflow-wrap: anywhere; }
-.member-role { font-size: 11px; color: var(--muted); }
-.member-balance { display: flex; flex-direction: column; gap: 8px; padding: 24px 0; }
+.member-role { display: block; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.member-balance { display: flex; flex-direction: column; gap: 10px; padding: 30px 0 24px; }
 .member-balance > span { color: var(--muted-strong); font-size: 12px; }
 .member-balance > strong { font-size: clamp(26px, 3vw, 34px); letter-spacing: -1px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.member-expenses, .member-income-values { display: flex; gap: 16px; margin: 0; }
+.member-expenses, .member-income-values { display: flex; gap: 20px; margin: 0; }
 .member-expenses > div, .member-income-values > div { flex: 1; min-width: 0; }
 .member-card dt { color: var(--muted); font-size: 11px; line-height: 1.6; }
 .member-card dd { margin: 6px 0 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
-.member-income { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; flex: 1; display: flex; flex-direction: column; }
-.member-section-title { display: flex; align-items: center; gap: 8px; color: var(--accent-ink); margin-bottom: 18px; }
+.member-income { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 24px; flex: 1; display: flex; flex-direction: column; }
+.member-section-title { display: flex; align-items: center; gap: 10px; color: var(--ink-strong); margin-bottom: 20px; }
+.member-section-title svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--muted-strong); }
 .member-section-title h3 { font-size: 12px; margin: 0; }
-.member-income .button { width: 100%; margin-top: auto; white-space: normal; }
-.member-income-values { margin-bottom: 16px; }
-.member-income-values dd { font-size: 14px; }
+.member-income .button { width: 100%; margin: 0; white-space: normal; min-height: 44px; gap: 10px; }
+.member-income-action { padding-top: 24px; margin-top: auto; }
+.member-income-values { flex-direction: column; gap: 14px; margin-bottom: 20px; }
+.member-income-values > div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 14px; }
+.member-income-values dd { margin: 0; font-size: 14px; }
+.member-income-empty p { margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: var(--ink); }
+.member-income-empty span, .member-income-hint { display: block; margin: 0; font-size: 12px; line-height: 1.8; color: var(--muted); }
 .contribution-track { height: 5px; background: var(--surface-alt); border-radius: 99px; overflow: hidden; }
 .contribution-track i { height: 100%; display: block; background: var(--accent); }
-.member-protected { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 10px 0 20px; font-size: 10px; color: var(--muted); line-height: 1.7; }
+.member-protected { display: flex; flex-direction: column; gap: 4px; margin: 12px 0 0; font-size: 11px; color: var(--muted); line-height: 1.7; }
 .member-protected span:last-child { color: var(--mint); }
-.member-dependent { margin: 0 0 20px; font-size: 12px; line-height: 1.8; color: var(--muted-strong); }
+.member-dependent { margin: 0; font-size: 12px; line-height: 1.8; color: var(--muted-strong); }
 
 /* 09 | Revisões de decisão e vínculo do orçamento pessoal */
 .decision-metrics { display: flex; gap: 12px; margin: 24px 0; }
