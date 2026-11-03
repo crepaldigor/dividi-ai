@@ -5625,6 +5625,18 @@ select:disabled { opacity: .6; }
 .pending-how .pending-netting { margin-bottom: 12px; }
 .pending-routes { margin-top: 16px; }
 
+.split-amount.split-automatic { border-color: var(--accent); background: var(--accent-wash); }
+.access-soon { font-size: 10px; color: var(--muted); }
+.access-preview > h3 { margin: 22px 0 10px; }
+.access-preview > p { color: var(--muted-strong); line-height: 1.8; }
+.access-link-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.access-link-row input { flex: 1 1 220px; min-width: 0; }
+.access-features { display: flex; flex-direction: column; gap: 20px; padding: 22px 0; margin: 22px 0; border-block: 1px solid var(--line); }
+.access-features > div { display: flex; align-items: flex-start; gap: 14px; }
+.access-features svg { flex-shrink: 0; color: var(--accent-ink); }
+.access-features strong, .access-features small { display: block; }
+.access-features small { margin-top: 6px; color: var(--muted); line-height: 1.6; }
+
 /* 11 | Seletores e validação no mesmo visual do aplicativo */
 .enhanced-field { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; clip-path: inset(50%); overflow: hidden; opacity: 0; pointer-events: none; }
 .custom-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 46px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); color: var(--ink-strong); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }

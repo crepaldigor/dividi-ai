@@ -35,6 +35,20 @@ export function parseMoney(value) {
 const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 export const formatMoney = (cents) => currencyFormatter.format(cents / 100);
 
+// Only untouched fields receive the remainder; manually edited values stay intact.
+export function completeSplit(total, ids, values, edited) {
+  let used = 0;
+  for (const id of ids) if (edited.has(id)) used += parseMoney(values[id]);
+  const free = ids.filter(id => !edited.has(id));
+  const remaining = Math.max(0, total - used);
+  const result = { ...values };
+  free.forEach((id, i) => {
+    const amount = Math.floor(remaining / free.length) + (i < remaining % free.length ? 1 : 0);
+    result[id] = (amount / 100).toFixed(2).replace('.', ',');
+  });
+  return result;
+}
+
 export function sharesForExpense(amount, ids, mode = "equal", values = {}) {
   if (!Number.isSafeInteger(amount) || amount <= 0)
     throw new Error("A despesa precisa ser maior que zero.");

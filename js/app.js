@@ -15,6 +15,7 @@ import {
   parseMoney,
   formatMoney,
   sharesForExpense,
+  completeSplit,
   groupStats,
   paidBy,
   owedBy,
@@ -219,7 +220,7 @@ function renderWelcome() {
   </section><section class="start-guide" aria-label="Como funciona"><article><span class="step-number">01</span><div><h2>Junta a galera</h2><p>Um grupo para cada viagem, casa ou encontro.</p></div>${icon("people")}</article><article><span class="step-number">02</span><div><h2>Anota os gastos</h2><p>Quem pagou, quanto foi e quem vai dividir.</p></div>${icon("receipt")}</article><article><span class="step-number">03</span><div><h2>Fecha a conta</h2><p>Veja os saldos e registre cada acerto.</p></div>${icon("check")}</article></section>`;
 }
 function pageHead(group, heading, description, actions = true) {
-  return `<header class="page-head"><div><p class="eyebrow">${escapeHTML(typeNames[group.type] || "SEU GRUPO")} | ${escapeHTML(group.name)}${group.sample ? '<span class="note-chip">EXEMPLO</span>' : ""}</p><h1>${heading}</h1><p class="page-subtitle">${description}</p></div>${actions ? `<div class="head-buttons"><button class="icon-button" data-action="edit-group" aria-label="Gerenciar grupo" title="Gerenciar grupo">${icon("edit")}</button><button class="button secondary" data-action="share">${icon("upload")} Compartilhar resumo</button><button class="button primary" data-action="new-expense" ${isClosed(group,selectedMonth) ? 'disabled' : ''}>${icon("plus")} Nova despesa</button></div>` : ""}</header>`;
+  return `<header class="page-head"><div><p class="eyebrow">${escapeHTML(typeNames[group.type] || "SEU GRUPO")} | ${escapeHTML(group.name)}${group.sample ? '<span class="note-chip">EXEMPLO</span>' : ""}</p><h1>${heading}</h1><p class="page-subtitle">${description}</p></div>${actions ? `<div class="head-buttons"><button class="icon-button" data-action="edit-group" aria-label="Gerenciar grupo" title="Gerenciar grupo">${icon("edit")}</button><button class="button secondary" data-action="group-access">${icon("people")} Acesso ao grupo</button><button class="button secondary" data-action="share">${icon("upload")} Compartilhar resumo</button><button class="button primary" data-action="new-expense" ${isClosed(group,selectedMonth) ? 'disabled' : ''}>${icon("plus")} Nova despesa</button></div>` : ""}</header>`;
 }
 function statBlock(label, iconName, value, foot, accent = false) {
   return `<article class="stat-card"><div class="stat-top"><span>${label}</span><span class="stat-icon ${accent ? "accent" : ""}">${icon(iconName)}</span></div><div class="stat-number">${value}</div><p class="stat-foot">${foot}</p></article>`;
@@ -326,7 +327,7 @@ function renderExpensesView(group) {
 }
 function renderPeopleView(group, stats) {
   return `${pageHead(group, "Cada pessoa, sua parte.", `Participação e acertos de ${escapeHTML(monthLabel(selectedMonth))}.`, false)}
-    <div class="people-actions head-buttons"><button class="button secondary" data-action="group-finance">${icon('chart')} Orçamento da família</button><button class="button secondary" data-action="edit-group">${icon('edit')} Configurar grupo</button><button class="button primary" data-action="new-person">${icon('plus')} Adicionar pessoa</button></div>
+    <div class="people-actions head-buttons"><button class="button secondary" data-action="group-access">${icon("people")} Acesso ao grupo <span class="access-soon">Em breve</span></button><button class="button secondary" data-action="group-finance">${icon('chart')} Orçamento da família</button><button class="button secondary" data-action="edit-group">${icon('edit')} Configurar grupo</button><button class="button primary" data-action="new-person">${icon('plus')} Adicionar pessoa</button></div>
     <div class="people-grid">${group.members.map((member, i) => {
       const balance = stats.balances[member.id] || 0;
       const record = group.finances?.[selectedMonth]?.find(row => row.memberId === member.id);
@@ -429,7 +430,7 @@ function renderBudgetForm(budget) {
       budget?.housing || "family",
     )}</select><p class="field-hint">Inclua aluguel, sua contribuição em casa e ajuda a dependentes. Morar com a família não significa morar sem custos.</p></div>
     ${budget && budget.analysisVersion !== 2 ? '<p class="warning-text">Atualizamos as categorias. Antes, delivery estava junto de passeios e assinaturas junto de compras. Redistribua esses valores nos novos campos, sem somá-los duas vezes. A análise antiga será substituída ao salvar.</p>' : ""}
-    <fieldset class="budget-costs"><legend>Quais gastos fazem parte do seu mês?</legend>${budgetCategories.map(([key, label]) => `<div class="budget-cost"><label class="check-person" for="has-${key}"><input type="checkbox" id="has-${key}" data-budget-cost="${key}" ${budget?.costs[key] > 0 ? "checked" : ""}><span>${label}</span></label><input class="split-amount" id="cost-${key}" name="${key}" aria-label="Valor mensal em reais: ${label}" inputmode="decimal" placeholder="R$ 0,00" ${budget?.costs[key] > 0 ? "" : "disabled"} value="${value(budget?.costs[key] || 0)}"></div>`).join("")}</fieldset>
+    <fieldset class="budget-costs"><legend>Quais gastos fazem parte do seu mês?</legend>${budgetCategories.map(([key, label]) => `<div class="budget-cost"><label class="check-person" for="has-${key}"><input type="checkbox" id="has-${key}" data-budget-cost="${key}" ${budget?.costs[key] > 0 ? "checked" : ""}><span>${label}</span></label><input class="split-amount" id="cost-${key}" name="cost-${key}" aria-label="Valor mensal em reais: ${label}" inputmode="decimal" placeholder="R$ 0,00" ${budget?.costs[key] > 0 ? "" : "disabled"} value="${value(budget?.costs[key] || 0)}"></div>`).join("")}</fieldset>
     <p id="budget-error" class="budget-error" role="alert"></p><div class="form-actions"><button class="button primary" type="submit">Analisar meus gastos ${icon("arrow")}</button>${budget ? '<button type="button" class="button secondary" data-action="delete-budget">Apagar análise</button>' : ""}</div><p class="field-hint">Tudo é calculado gratuitamente neste navegador. Renda e gastos também entram no arquivo de backup; compartilhe esse arquivo somente se quiser incluir essas informações.</p></form></details>
     <div id="budget-result" class="panel panel-pad budget-result" aria-live="polite">${budget ? renderBudgetResult(budget) : '<div class="empty-state"><div class="empty-illustration">' + icon("chart") + "</div><h3>Seu mês começa pelos números</h3><p>Preencha sua renda e os gastos. Vamos analisar o que pesa mais e o que pode ser revisto na sua rotina.</p></div>"}</div></div>`;
 }
@@ -471,7 +472,7 @@ function saveBudget(form) {
     const costs = Object.fromEntries(
       budgetCategories.map(([key]) => [
         key,
-        $(`#has-${key}`).checked ? parseMoney(fields.get(key)) : 0,
+        $(`#has-${key}`).checked ? parseMoney(fields.get(`cost-${key}`) || "0") : 0,
       ]),
     );
     const budget = {
@@ -558,6 +559,8 @@ function expenseForm(id = null, recurring = null) {
     selectedIds: e ? Object.keys(e.shares) : family.members.filter(m=>m.role !== 'dependent').map(m=>m.id),
     mode: e?.mode || (family.familyReady ? 'family' : 'equal'),
     values: e?.values ? { ...e.values } : {},
+    edited: new Set(e ? Object.keys(e.shares) : []),
+    modes: {},
     originalShares: e?.shares || {},
     multiplePayers: e ? Object.keys(expensePayments(e)).length > 1 : false,
     payerValues: e ? Object.fromEntries(Object.entries(expensePayments(e)).map(([id, amount]) => [id, (amount / 100).toFixed(2).replace('.', ',')])) : {},
@@ -638,7 +641,7 @@ function renderSplitEditor() {
   }
   $("#split-editor").innerHTML =
     `<div class="split-tabs" role="group" aria-label="Modo de divisão">${modes.map(([id, label]) => `<button type="button" data-mode="${id}" class="split-tab ${expenseDraft.mode === id ? "active" : ""}" aria-pressed="${expenseDraft.mode === id}">${label}</button>`).join("")}</div>
-    ${family?.dependents.length ? '<p class="field-hint">Dependentes não entram na divisão de pagamento deste mês.</p>' : ''}<div class="participant-rows">${participants.map((m) => `<div class="split-person-row"><label class="check-person"><input type="checkbox" data-share-id="${escapeHTML(m.id)}" ${expenseDraft.selectedIds.includes(m.id) ? "checked" : ""} /><span>${escapeHTML(m.name)}</span></label>${expenseDraft.mode === "equal" || !expenseDraft.selectedIds.includes(m.id) ? "" : `<input class="split-amount" data-split-id="${escapeHTML(m.id)}" inputmode="decimal" placeholder="${expenseDraft.mode === "percent" ? "0,00 %" : "R$ 0,00"}" aria-label="${expenseDraft.mode === "percent" ? "Percentual" : "Valor"} de ${escapeHTML(m.name)}" value="${escapeHTML(expenseDraft.values[m.id] ?? "")}" />`}</div>`).join("")}</div><div class="split-preview" id="split-preview" aria-live="polite"></div>`;
+    ${expenseDraft.mode !== "equal" ? '<p class="field-hint">O restante é dividido automaticamente entre os campos que você ainda não editou. Seus valores ficam preservados. Para voltar um campo ao automático, apague o valor e saia dele.</p>' : ""}${family?.dependents.length ? '<p class="field-hint">Dependentes não entram na divisão de pagamento deste mês.</p>' : ''}<div class="participant-rows">${participants.map((m) => `<div class="split-person-row"><label class="check-person"><input type="checkbox" data-share-id="${escapeHTML(m.id)}" ${expenseDraft.selectedIds.includes(m.id) ? "checked" : ""} /><span>${escapeHTML(m.name)}</span></label>${expenseDraft.mode === "equal" || !expenseDraft.selectedIds.includes(m.id) ? "" : `<input class="split-amount" data-split-id="${escapeHTML(m.id)}" inputmode="decimal" placeholder="${expenseDraft.mode === "percent" ? "0,00 %" : "R$ 0,00"}" aria-label="${expenseDraft.mode === "percent" ? "Percentual" : "Valor"} de ${escapeHTML(m.name)}" value="${escapeHTML(expenseDraft.values[m.id] ?? "")}" />`}</div>`).join("")}</div><div class="split-preview" id="split-preview" aria-live="polite"></div>`;
   updateSplitPreview();
 }
 function readSplitInputs() {
@@ -646,7 +649,21 @@ function readSplitInputs() {
   for (const input of document.querySelectorAll("[data-split-id]"))
     expenseDraft.values[input.dataset.splitId] = input.value;
 }
+function completeDraftSplit() {
+  if (!expenseDraft || !['exact', 'percent'].includes(expenseDraft.mode)) return;
+  try {
+    const total = expenseDraft.mode === 'percent' ? 10000 : parseMoney($('#expense-amount').value || '0');
+    expenseDraft.values = completeSplit(total, expenseDraft.selectedIds, expenseDraft.values, expenseDraft.edited);
+    for (const input of document.querySelectorAll('[data-split-id]')) {
+      const id = input.dataset.splitId;
+      if (!expenseDraft.edited.has(id)) input.value = expenseDraft.values[id] || '';
+      input.classList.toggle('split-automatic', !expenseDraft.edited.has(id));
+      input.title = expenseDraft.edited.has(id) ? 'Valor definido por você. Apague para voltar ao automático.' : 'Preenchido automaticamente. Você pode editar.';
+    }
+  } catch { /* The preview explains invalid inputs without replacing manual values. */ }
+}
 function updateSplitPreview() {
+  completeDraftSplit();
   const node = $("#split-preview");
   if (!node || !expenseDraft) return;
   try {
@@ -1023,11 +1040,21 @@ document.addEventListener("click", async (event) => {
   }
   if (btn.dataset.mode) {
     readSplitInputs();
+    expenseDraft.modes[expenseDraft.mode] = { values: { ...expenseDraft.values }, edited: new Set(expenseDraft.edited) };
     expenseDraft.mode = btn.dataset.mode;
+    const saved = expenseDraft.modes[expenseDraft.mode];
+    expenseDraft.values = saved ? { ...saved.values } : {};
+    expenseDraft.edited = new Set(saved?.edited || []);
     renderSplitEditor();
     return;
   }
   const action = btn.dataset.action;
+  if (action === 'group-access') {
+    const group = groupNow();
+    if (!group) return;
+    openDialog(`${dialogTitle('Acesso ao grupo', escapeHTML(group.name))}<div class="dialog-body access-preview"><span class="status-badge">Em breve</span><h3>Organize o grupo com outras pessoas</h3><p>O espaço para convites está preparado. Por enquanto, este grupo continua salvo somente neste navegador.</p><div class="field"><label for="group-invite-preview">Link de convite</label><div class="access-link-row"><input id="group-invite-preview" placeholder="O link aparecerá aqui quando estiver disponível" disabled><button class="button secondary" disabled>Copiar link</button></div></div><div class="access-features"><div>${icon('people')}<span><strong>Participantes conectados</strong><small>Acesso ao mesmo grupo em outros aparelhos.</small></span></div><div>${icon('shield')}<span><strong>Permissões de acesso</strong><small>Controles de visualização e edição previstos.</small></span></div></div><p class="field-hint">Nenhum link ou código de acesso é gerado nesta versão. Para enviar os valores atuais, use Compartilhar resumo.</p><div class="form-actions"><button class="button primary" data-action="close-dialog">Entendi</button></div></div>`);
+    return;
+  }
   if (action === 'explain-pending' || action === 'explain-settlement') {
     const group = groupNow();
     if (!group) return;
@@ -1247,11 +1274,17 @@ document.addEventListener("input", (event) => {
     updatePayerPreview();
   }
   if (event.target.matches("[data-split-id]")) {
+    expenseDraft.edited.add(event.target.dataset.splitId);
     expenseDraft.values[event.target.dataset.splitId] = event.target.value;
     updateSplitPreview();
   }
 });
 document.addEventListener("change", (event) => {
+  if (event.target.matches('[data-split-id]') && !event.target.value.trim()) {
+    expenseDraft.edited.delete(event.target.dataset.splitId);
+    updateSplitPreview();
+    return;
+  }
   if (event.target.id === 'statement-month') {
     if (!isMonth(event.target.value)) { event.target.value = selectedMonth; return; }
     selectedMonth = event.target.value; expenseFilter = {text:'',category:'all'}; render(); return;
