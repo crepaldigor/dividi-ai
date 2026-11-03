@@ -4,13 +4,15 @@ Site para dividir despesas de grupos e famílias, acompanhar acertos e analisar 
 
 ## Executar
 
-Abra a pasta no VS Code e use o **Live Server**, ou execute com Python instalado:
+O projeto usa apenas HTML, CSS e JavaScript. Não precisa de Python, instalação de pacotes ou comando de build.
 
-```sh
-python -m http.server 5500
-```
+Para visualizar durante o desenvolvimento:
 
-Acesse **http://localhost:5500**. Use um servidor HTTP: abrir o `index.html` diretamente por `file://` não é suficiente para carregar os módulos JavaScript.
+1. Abra a pasta do projeto no VS Code.
+2. Instale a extensão **Live Server**, caso ainda não esteja instalada.
+3. Clique com o botão direito em `index.html` e selecione **Open with Live Server**.
+
+A extensão abre o site no navegador por um endereço local. Ela é uma ferramenta de desenvolvimento, não uma funcionalidade do aplicativo. Use um servidor HTTP: abrir o `index.html` diretamente por `file://` não é suficiente para carregar os módulos JavaScript. Depois de publicado, basta acessar o endereço do site.
 
 ## Publicar
 
